@@ -5,6 +5,7 @@
   "outputDirectory": "frontend/.next",
   "installCommand": "cd frontend && npm install",
   "regions": ["iad1", "sfo1"],
+  "public": true,
   "headers": [
     {
       "source": "/api/(.*)",

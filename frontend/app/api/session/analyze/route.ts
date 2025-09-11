@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import { supabase, TABLES } from '../../../../lib/supabase-backend';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -138,13 +139,58 @@ Please analyze this sales conversation and provide detailed feedback.
       // Parse the JSON response from OpenAI
       const analysis = JSON.parse(analysisText);
       
+      const finalAnalysis = {
+        ...analysis,
+        id: sessionId,
+        duration: Math.floor((duration || 0) / 60), // Convert to minutes
+        date: new Date(),
+      };
+
+      // 🚀 SAVE ANALYSIS TO DATABASE
+      if (!sessionId.startsWith('demo-')) {
+        try {
+          console.log('💾 Saving analysis to database for session:', sessionId);
+          
+          // Update session with analysis results
+          const { error: updateError } = await supabase
+            .from(TABLES.SESSIONS)
+            .update({
+              overall_score: analysis.overallScore || 0,
+              feedback_summary: analysis.detailedAnalysis ? analysis.detailedAnalysis.substring(0, 500) + '...' : null,
+              session_type: analysis.title || 'Voice Training Session', 
+              status: 'analyzed',
+              processing_status: 'completed',
+              analyzed_at: new Date().toISOString()
+            })
+            .eq('id', sessionId);
+
+          if (updateError) {
+            console.error('❌ Failed to update session with analysis:', updateError);
+          } else {
+            console.log('✅ Analysis saved to database successfully');
+          }
+
+          // Save detailed analysis to analysis_results table
+          const { error: analysisError } = await supabase
+            .from(TABLES.ANALYSIS_RESULTS)
+            .upsert({
+              session_id: sessionId,
+              analysis_data: finalAnalysis,
+              created_at: new Date().toISOString()
+            });
+
+          if (analysisError) {
+            console.error('❌ Failed to save detailed analysis:', analysisError);
+          }
+          
+        } catch (dbError) {
+          console.error('❌ Database save error:', dbError);
+          // Don't fail the request if DB save fails
+        }
+      }
+      
       return NextResponse.json({
-        analysis: {
-          ...analysis,
-          id: sessionId,
-          duration: Math.floor((duration || 0) / 60), // Convert to minutes
-          date: new Date(),
-        },
+        analysis: finalAnalysis,
         isDemo: false
       });
       

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Bot, ArrowLeft, Eye, EyeOff, User, Mail, Building, Users } from 'lucide-react';
+import { Bot, ArrowLeft, Eye, EyeOff, User, Mail, Building, Users, Briefcase, Phone } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { createClient } from '../../lib/supabase';
 
@@ -15,6 +15,8 @@ interface RegistrationForm {
   firstName: string;
   lastName: string;
   companyName: string;
+  phone: string;
+  teamSize: string;
   role: string;
 }
 
@@ -26,6 +28,8 @@ export default function RegisterPage() {
     firstName: '',
     lastName: '',
     companyName: '',
+    phone: '',
+    teamSize: '',
     role: 'user'
   });
   
@@ -83,6 +87,16 @@ export default function RegisterPage() {
       newErrors.companyName = 'Company name is required';
     }
 
+    // Phone validation (optional but must be valid if provided)
+    if (formData.phone && !/^[\d\s\-\+\(\)\.]+$/.test(formData.phone)) {
+      newErrors.phone = 'Please enter a valid phone number';
+    }
+
+    // Team size validation (optional)
+    if (formData.teamSize && (isNaN(Number(formData.teamSize)) || Number(formData.teamSize) < 1)) {
+      newErrors.teamSize = 'Team size must be a number greater than 0';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -98,14 +112,19 @@ export default function RegisterPage() {
     setIsSubmitting(true);
 
     try {
-      // Real Supabase registration
+      // Real Supabase registration with extended metadata
       const { data, error } = await supabase.auth.signUp({
         email: formData.email.trim(),
         password: formData.password,
         options: {
           data: {
-            full_name: `${formData.firstName} ${formData.lastName}`.trim(),
+            first_name: formData.firstName.trim(),
+            last_name: formData.lastName.trim(),
+            full_name: `${formData.firstName.trim()} ${formData.lastName.trim()}`,
             company: formData.companyName.trim(),
+            company_name: formData.companyName.trim(),
+            phone: formData.phone.trim() || null,
+            team_size: formData.teamSize ? Number(formData.teamSize) : null,
             role: formData.role,
           },
           emailRedirectTo: `${window.location.origin}/auth/callback?redirectTo=/dashboard`
@@ -148,6 +167,8 @@ export default function RegisterPage() {
           firstName: '',
           lastName: '',
           companyName: '',
+          phone: '',
+          teamSize: '',
           role: 'user'
         });
       }
@@ -171,7 +192,7 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="max-w-md w-full">
+      <div className="max-w-2xl w-full">
         {/* Back to home */}
         <motion.div
           initial={{ opacity: 0, x: -20 }}
@@ -199,7 +220,7 @@ export default function RegisterPage() {
           {/* Form title */}
           <div className="text-center mb-6">
             <h2 className="text-xl font-bold text-gray-900 mb-2">Create Your Account</h2>
-            <p className="text-gray-600">Join thousands of sales professionals improving their skills</p>
+            <p className="text-gray-600">Join thousands of sales professionals improving their skills with AI</p>
           </div>
 
           {/* Registration form */}
@@ -208,7 +229,7 @@ export default function RegisterPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-2">
-                  First Name
+                  First Name *
                 </label>
                 <div className="relative">
                   <User className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
@@ -230,7 +251,7 @@ export default function RegisterPage() {
 
               <div>
                 <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-2">
-                  Last Name
+                  Last Name *
                 </label>
                 <input
                   type="text"
@@ -251,7 +272,7 @@ export default function RegisterPage() {
             {/* Email field */}
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                Email Address
+                Email Address *
               </label>
               <div className="relative">
                 <Mail className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
@@ -271,10 +292,10 @@ export default function RegisterPage() {
               )}
             </div>
 
-            {/* Company field */}
+            {/* Company Name */}
             <div>
               <label htmlFor="companyName" className="block text-sm font-medium text-gray-700 mb-2">
-                Company Name
+                Company Name *
               </label>
               <div className="relative">
                 <Building className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
@@ -294,13 +315,66 @@ export default function RegisterPage() {
               )}
             </div>
 
-            {/* Role field */}
+            {/* Phone and Team Size */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
+                  Phone Number
+                </label>
+                <div className="relative">
+                  <Phone className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                  <input
+                    type="tel"
+                    id="phone"
+                    value={formData.phone}
+                    onChange={(e) => handleInputChange('phone', e.target.value)}
+                    className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
+                      errors.phone ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                    placeholder="+1 (555) 123-4567"
+                  />
+                </div>
+                {errors.phone && (
+                  <p className="mt-1 text-sm text-red-600">{errors.phone}</p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="teamSize" className="block text-sm font-medium text-gray-700 mb-2">
+                  Team Size
+                </label>
+                <div className="relative">
+                  <Users className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                  <select
+                    id="teamSize"
+                    value={formData.teamSize}
+                    onChange={(e) => handleInputChange('teamSize', e.target.value)}
+                    className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
+                      errors.teamSize ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                  >
+                    <option value="">Select team size</option>
+                    <option value="1">Just me (1)</option>
+                    <option value="2">2-5 people</option>
+                    <option value="6">6-10 people</option>
+                    <option value="11">11-25 people</option>
+                    <option value="26">26-50 people</option>
+                    <option value="51">50+ people</option>
+                  </select>
+                </div>
+                {errors.teamSize && (
+                  <p className="mt-1 text-sm text-red-600">{errors.teamSize}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Position field */}
             <div>
               <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-2">
-                Role
+                Position *
               </label>
               <div className="relative">
-                <Users className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                <Briefcase className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
                 <select
                   id="role"
                   value={formData.role}
@@ -310,79 +384,72 @@ export default function RegisterPage() {
                   <option value="user">Sales Representative</option>
                   <option value="manager">Sales Manager</option>
                   <option value="admin">Team Admin</option>
+                  <option value="director">Sales Director</option>
+                  <option value="vp">VP of Sales</option>
                 </select>
               </div>
             </div>
 
             {/* Password fields */}
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                Password
-              </label>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  id="password"
-                  value={formData.password}
-                  onChange={(e) => handleInputChange('password', e.target.value)}
-                  className={`w-full px-4 py-3 pr-12 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
-                    errors.password ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                  placeholder="At least 8 characters"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
-              </div>
-              {errors.password && (
-                <p className="mt-1 text-sm text-red-600">{errors.password}</p>
-              )}
-            </div>
-
-            <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
-                Confirm Password
-              </label>
-              <div className="relative">
-                <input
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  id="confirmPassword"
-                  value={formData.confirmPassword}
-                  onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
-                  className={`w-full px-4 py-3 pr-12 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
-                    errors.confirmPassword ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                  placeholder="Re-enter password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
-              </div>
-              {errors.confirmPassword && (
-                <p className="mt-1 text-sm text-red-600">{errors.confirmPassword}</p>
-              )}
-            </div>
-
-            {/* Demo notice */}
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-              <div className="flex items-center">
-                <svg className="h-5 w-5 text-yellow-600 mr-3" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
-                <div>
-                  <p className="text-sm text-yellow-800 font-medium">Demo Mode</p>
-                  <p className="text-sm text-yellow-700">Registration is simulated. No actual account will be created.</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+                  Password *
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    id="password"
+                    value={formData.password}
+                    onChange={(e) => handleInputChange('password', e.target.value)}
+                    className={`w-full px-4 py-3 pr-12 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
+                      errors.password ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                    placeholder="At least 8 characters"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
                 </div>
+                {errors.password && (
+                  <p className="mt-1 text-sm text-red-600">{errors.password}</p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
+                  Confirm Password *
+                </label>
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    id="confirmPassword"
+                    value={formData.confirmPassword}
+                    onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+                    className={`w-full px-4 py-3 pr-12 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
+                      errors.confirmPassword ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                    placeholder="Re-enter password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+                {errors.confirmPassword && (
+                  <p className="mt-1 text-sm text-red-600">{errors.confirmPassword}</p>
+                )}
               </div>
             </div>
+
+
 
             {/* Submit button */}
             <button

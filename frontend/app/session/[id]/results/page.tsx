@@ -10,401 +10,345 @@ import {
   Award,
   FileText,
   Printer,
-  Loader
+  Loader,
+  Clock,
+  MessageSquare
 } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
-interface DetailedSessionAnalysis {
-  id: string;
-  title: string;
-  duration: number;
-  overallScore: number;
-  date: Date;
-  
-  // Core analysis
-  strengths: string[];
-  areasForImprovement: string[];
-  
-  // Sales techniques analysis
-  effectiveTechniques: string[];
-  techniquesNeedingWork: string[];
-  
-  // Specific analysis areas
-  objectionHandling: {
-    score: number;
-    analysis: string;
+interface ElevenLabsAnalysis {
+  conversation_id: string;
+  analysis_timestamp: string;
+  conversation_metadata: {
+    duration: number;
+    message_count: number;
+    start_time: number;
+    status: string;
+    call_successful: string;
   };
-  
-  closingEffectiveness: {
-    score: number;
-    analysis: string;
+  analysis: {
+    overall_score: number;
+    key_strengths: string[];
+    areas_for_improvement: string[];
+    specific_feedback: {
+      opening: string;
+      product_presentation: string;
+      objection_handling: string;
+      closing: string;
+    };
+    recommended_actions: string[];
+    conversation_summary: string;
   };
-  
-  // Key recommendations
-  keyRecommendations: string[];
-  
-  // Detailed analysis
-  detailedAnalysis: string;
+  transcript: any[];
+  raw_transcript_text: string;
 }
 
 export default function SessionResultsPage() {
   const params = useParams();
-  const sessionId = params.id as string;
+  const conversationId = params.id as string;
   
-  const [sessionAnalysis, setSessionAnalysis] = useState<DetailedSessionAnalysis | null>(null);
+  const [analysisData, setAnalysisData] = useState<ElevenLabsAnalysis | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isDemo, setIsDemo] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const loadSessionAnalysis = async () => {
+    const loadElevenLabsAnalysis = async () => {
       try {
         setIsLoading(true);
+        setError(null);
         
-        // Get demo user data if available for personalization
-        const demoUser = JSON.parse(localStorage.getItem('demo-user') || '{}');
-        
-        // Try to get real session data from localStorage or API
-        const demoSessions = JSON.parse(localStorage.getItem('demo-sessions') || '[]');
-        const currentSession = demoSessions.find((session: any) => session.id === sessionId);
-        
-        // Prepare analysis request
-        const analysisData = {
-          sessionId,
-          transcript: currentSession?.transcript || '',
-          duration: currentSession?.duration || 0,
-          userInfo: demoUser.name ? {
-            name: demoUser.name,
-            company: demoUser.company || 'Demo Company',
-            role: demoUser.role || 'Sales Representative'
-          } : undefined
-        };
+        console.log('🔍 Loading ElevenLabs conversation analysis:', conversationId);
 
-        // Call analysis API
-        const response = await fetch('/api/session/analyze', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(analysisData)
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch analysis');
+        // Check if this is a real ElevenLabs conversation ID
+        if (conversationId.startsWith('demo-') || conversationId.startsWith('temp-')) {
+          setError('This appears to be a demo conversation. Real analysis requires an ElevenLabs conversation ID.');
+          setIsLoading(false);
+          return;
         }
 
-        const result = await response.json();
-        setSessionAnalysis(result.analysis);
-        setIsDemo(result.isDemo);
+        // Try to get existing analysis or trigger new analysis
+        setIsAnalyzing(true);
+        const analysisResponse = await fetch(`/api/elevenlabs/conversations/${conversationId}/analyze`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (analysisResponse.ok) {
+          const result = await analysisResponse.json();
+          setAnalysisData(result);
+          console.log('✅ ElevenLabs analysis loaded successfully');
+        } else {
+          const errorData = await analysisResponse.json();
+          setError(`Failed to analyze conversation: ${errorData.error || 'Unknown error'}`);
+        }
         
       } catch (error) {
-        console.error('Error loading session analysis:', error);
-        
-        // Fallback to basic analysis if API fails
-        setSessionAnalysis({
-          id: sessionId,
-          title: 'Voice Training Session Analysis',
-          duration: 15,
-          overallScore: 6,
-          date: new Date(),
-          strengths: [
-            'Maintained professional demeanor throughout',
-            'Showed good product knowledge',
-            'Asked relevant questions'
-          ],
-          areasForImprovement: [
-            'Could improve active listening',
-            'More specific value propositions needed',
-            'Better objection handling required'
-          ],
-          effectiveTechniques: [
-            'Professional introduction',
-            'Question-based approach'
-          ],
-          techniquesNeedingWork: [
-            'Needs discovery',
-            'Closing techniques',
-            'Follow-up planning'
-          ],
-          objectionHandling: {
-            score: 5,
-            analysis: 'Basic objection handling was attempted but could be more systematic.'
-          },
-          closingEffectiveness: {
-            score: 4,
-            analysis: 'Limited closing attempts were made during the conversation.'
-          },
-          keyRecommendations: [
-            'Practice active listening techniques',
-            'Develop stronger value propositions',
-            'Improve objection handling framework',
-            'Focus on clear next steps'
-          ],
-          detailedAnalysis: 'This session showed promise with good foundational skills. Focus on developing more structured sales methodology and practicing specific scenarios to improve overall effectiveness.'
-        });
-        setIsDemo(true);
+        console.error('❌ Error loading ElevenLabs analysis:', error);
+        setError('Failed to load conversation analysis. Please try again.');
       } finally {
         setIsLoading(false);
+        setIsAnalyzing(false);
       }
     };
 
-    if (sessionId) {
-      loadSessionAnalysis();
+    if (conversationId) {
+      loadElevenLabsAnalysis();
     }
-  }, [sessionId]);
+  }, [conversationId]);
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <Loader className="w-12 h-12 animate-spin text-blue-500 mx-auto mb-4" />
-          <p className="text-lg text-gray-600">Analyzing your session...</p>
-          <p className="text-sm text-gray-500 mt-2">AI is processing your conversation data</p>
+          <Loader className="w-8 h-8 animate-spin mx-auto mb-4 text-blue-500" />
+          <h2 className="text-xl font-semibold text-gray-700 mb-2">
+            {isAnalyzing ? 'Analyzing Conversation...' : 'Loading Analysis...'}
+          </h2>
+          <p className="text-gray-500">
+            {isAnalyzing ? 'Using AI to generate detailed insights' : 'Fetching conversation data from ElevenLabs'}
+          </p>
         </div>
       </div>
     );
   }
 
-  if (!sessionAnalysis) {
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-gray-700 mb-2">Analysis Error</h2>
+          <p className="text-gray-600 mb-6">{error}</p>
+          <div className="space-x-4">
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+            >
+              Try Again
+            </button>
+            <Link href="/dashboard" className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
+              Back to Dashboard
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!analysisData) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Analysis Not Available</h2>
-          <Link href="/dashboard" className="text-blue-600 hover:text-blue-700">
-            ← Back to Dashboard
+          <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-gray-700 mb-2">No Analysis Available</h2>
+          <p className="text-gray-600 mb-6">Could not load conversation analysis data.</p>
+          <Link href="/dashboard" className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">
+            Back to Dashboard
           </Link>
         </div>
       </div>
     );
   }
 
-  const getScoreColor = (score: number) => {
-    if (score >= 8) return 'text-green-600';
-    if (score >= 6) return 'text-blue-600';
-    if (score >= 4) return 'text-yellow-600';
-    return 'text-red-600';
-  };
-
-  const getScoreBgColor = (score: number) => {
-    if (score >= 8) return 'bg-green-50';
-    if (score >= 6) return 'bg-blue-50';
-    if (score >= 4) return 'bg-yellow-50';
-    return 'bg-red-50';
-  };
+  const { analysis, conversation_metadata } = analysisData;
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-5xl mx-auto px-4 py-6">
-          <Link href="/dashboard" className="flex items-center text-blue-600 hover:text-blue-700 mb-4">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Dashboard
-          </Link>
-          
-          <div className="text-center">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Sales Performance Analysis</h1>
-            <p className="text-gray-600 mb-6">Detailed feedback on your conversation with AI-powered insights</p>
-            
-            {/* Demo mode indicator */}
-            {isDemo && (
-              <div className="inline-block px-4 py-2 bg-yellow-100 text-yellow-800 rounded-full text-sm font-medium mb-4">
-                🎭 Demo Analysis - Sign up for real AI-powered insights
+      <div className="bg-white border-b sticky top-0 z-10">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <Link href="/dashboard" className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
+              </Link>
+              <div>
+                <h1 className="text-xl font-semibold text-gray-900">Conversation Analysis</h1>
+                <p className="text-sm text-gray-500">
+                  ElevenLabs Conversation • {new Date(conversation_metadata.start_time * 1000).toLocaleDateString()}
+                </p>
               </div>
-            )}
-            
-            {/* Overall Score */}
-            <div className={`inline-block px-8 py-6 rounded-2xl ${getScoreBgColor(sessionAnalysis.overallScore)} mb-4`}>
-              <div className={`text-6xl font-bold ${getScoreColor(sessionAnalysis.overallScore)} mb-2`}>
-                {sessionAnalysis.overallScore}/10
-              </div>
-              <div className="text-gray-700 font-medium">Overall Performance Score</div>
             </div>
+            <button className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">
+              <Printer className="w-4 h-4" />
+              <span>Export Report</span>
+            </button>
           </div>
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
-        {/* Strengths & Areas for Improvement */}
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* Strengths */}
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="bg-green-50 border border-green-200 rounded-xl p-6"
-          >
-            <div className="flex items-center mb-4">
-              <CheckCircle className="w-6 h-6 text-green-600 mr-3" />
-              <h3 className="text-xl font-bold text-green-800">Strengths</h3>
-            </div>
-            <ul className="space-y-3">
-              {sessionAnalysis.strengths.map((strength, index) => (
-                <li key={index} className="flex items-start text-green-700">
-                  <span className="text-green-500 mr-3 mt-1">•</span>
-                  <span>{strength}</span>
-                </li>
-              ))}
-            </ul>
-          </motion.div>
-
-          {/* Areas for Improvement */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="bg-red-50 border border-red-200 rounded-xl p-6"
-          >
-            <div className="flex items-center mb-4">
-              <AlertTriangle className="w-6 h-6 text-red-600 mr-3" />
-              <h3 className="text-xl font-bold text-red-800">Areas for Improvement</h3>
-            </div>
-            <ul className="space-y-3">
-              {sessionAnalysis.areasForImprovement.map((area, index) => (
-                <li key={index} className="flex items-start text-red-700">
-                  <span className="text-red-500 mr-3 mt-1">•</span>
-                  <span>{area}</span>
-                </li>
-              ))}
-            </ul>
-          </motion.div>
-        </div>
-
-        {/* Sales Techniques Analysis */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="bg-white rounded-xl shadow-lg p-6"
-        >
-          <h3 className="text-xl font-bold text-gray-900 mb-6">Sales Techniques Analysis</h3>
-          
-          <div className="grid md:grid-cols-2 gap-8">
-            {/* Effective Techniques */}
-            <div>
-              <h4 className="font-semibold text-green-700 mb-4">Effective Techniques Used</h4>
-              <div className="space-y-2">
-                {sessionAnalysis.effectiveTechniques.map((technique, index) => (
-                  <div key={index} className="flex items-center text-green-600">
-                    <CheckCircle className="w-4 h-4 mr-3" />
-                    <span className="text-gray-700">{technique}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Techniques Needing Work */}
-            <div>
-              <h4 className="font-semibold text-red-700 mb-4">Techniques Needing Work</h4>
-              <div className="space-y-2">
-                {sessionAnalysis.techniquesNeedingWork.map((technique, index) => (
-                  <div key={index} className="flex items-center text-red-600">
-                    <AlertTriangle className="w-4 h-4 mr-3" />
-                    <span className="text-gray-700">{technique}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* Specific Analysis Areas */}
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* Objection Handling */}
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Overview Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="bg-blue-50 border border-blue-200 rounded-xl p-6"
+            className="bg-white p-6 rounded-lg shadow-sm border"
           >
-            <h3 className="text-xl font-bold text-blue-800 mb-4">Objection Handling</h3>
-            <p className="text-blue-700 mb-4 leading-relaxed">
-              {sessionAnalysis.objectionHandling.analysis}
-            </p>
-            <div className="text-sm text-blue-600">
-              <strong>Score: {sessionAnalysis.objectionHandling.score}/10</strong>
+            <div className="flex items-center space-x-3 mb-2">
+              <Award className="w-5 h-5 text-green-500" />
+              <h3 className="font-semibold text-gray-900">Overall Score</h3>
             </div>
+            <p className="text-3xl font-bold text-green-500">{analysis.overall_score}/10</p>
+            <p className="text-sm text-gray-500 mt-1">AI-powered evaluation</p>
           </motion.div>
 
-          {/* Closing Effectiveness */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="bg-white p-6 rounded-lg shadow-sm border"
+          >
+            <div className="flex items-center space-x-3 mb-2">
+              <Clock className="w-5 h-5 text-blue-500" />
+              <h3 className="font-semibold text-gray-900">Duration</h3>
+            </div>
+            <p className="text-3xl font-bold text-blue-500">{Math.ceil(conversation_metadata.duration / 60)}m</p>
+            <p className="text-sm text-gray-500 mt-1">{conversation_metadata.duration} seconds total</p>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="bg-white p-6 rounded-lg shadow-sm border"
+          >
+            <div className="flex items-center space-x-3 mb-2">
+              <MessageSquare className="w-5 h-5 text-purple-500" />
+              <h3 className="font-semibold text-gray-900">Messages</h3>
+            </div>
+            <p className="text-3xl font-bold text-purple-500">{conversation_metadata.message_count}</p>
+            <p className="text-sm text-gray-500 mt-1">
+              Status: {conversation_metadata.call_successful === 'success' ? '✅ Successful' : '⚠️ Needs Review'}
+            </p>
+          </motion.div>
+        </div>
+
+        {/* Conversation Summary */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="bg-white p-6 rounded-lg shadow-sm border mb-8"
+        >
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Conversation Summary</h2>
+          <p className="text-gray-700 leading-relaxed">{analysis.conversation_summary}</p>
+        </motion.div>
+
+        {/* Key Strengths & Areas for Improvement */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
-            className="bg-purple-50 border border-purple-200 rounded-xl p-6"
+            className="bg-white p-6 rounded-lg shadow-sm border"
           >
-            <h3 className="text-xl font-bold text-purple-800 mb-4">Closing Effectiveness</h3>
-            <p className="text-purple-700 mb-4 leading-relaxed">
-              {sessionAnalysis.closingEffectiveness.analysis}
-            </p>
-            <div className="text-sm text-purple-600">
-              <strong>Score: {sessionAnalysis.closingEffectiveness.score}/10</strong>
+            <div className="flex items-center space-x-3 mb-4">
+              <CheckCircle className="w-5 h-5 text-green-500" />
+              <h2 className="text-lg font-semibold text-gray-900">Key Strengths</h2>
             </div>
+            <ul className="space-y-2">
+              {analysis.key_strengths.map((strength, index) => (
+                <li key={index} className="flex items-start space-x-2">
+                  <span className="w-1.5 h-1.5 bg-green-500 rounded-full mt-2 flex-shrink-0"></span>
+                  <span className="text-gray-700">{strength}</span>
+                </li>
+              ))}
+            </ul>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5 }}
+            className="bg-white p-6 rounded-lg shadow-sm border"
+          >
+            <div className="flex items-center space-x-3 mb-4">
+              <AlertTriangle className="w-5 h-5 text-amber-500" />
+              <h2 className="text-lg font-semibold text-gray-900">Areas for Improvement</h2>
+            </div>
+            <ul className="space-y-2">
+              {analysis.areas_for_improvement.map((area, index) => (
+                <li key={index} className="flex items-start space-x-2">
+                  <span className="w-1.5 h-1.5 bg-amber-500 rounded-full mt-2 flex-shrink-0"></span>
+                  <span className="text-gray-700">{area}</span>
+                </li>
+              ))}
+            </ul>
           </motion.div>
         </div>
 
-        {/* Key Recommendations */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          className="bg-yellow-50 border border-yellow-200 rounded-xl p-6"
-        >
-          <div className="flex items-center mb-6">
-            <Award className="w-6 h-6 text-yellow-600 mr-3" />
-            <h3 className="text-xl font-bold text-yellow-800">Key Recommendations</h3>
-          </div>
-          
-          <div className="space-y-4">
-            {sessionAnalysis.keyRecommendations.map((recommendation, index) => (
-              <div key={index} className="flex items-start">
-                <div className="bg-yellow-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold mr-4 mt-0.5">
-                  {index + 1}
-                </div>
-                <p className="text-yellow-800 leading-relaxed">{recommendation}</p>
-              </div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Detailed Analysis */}
+        {/* Specific Feedback Sections */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.6 }}
-          className="bg-white rounded-xl shadow-lg p-6"
+          className="bg-white p-6 rounded-lg shadow-sm border mb-8"
         >
-          <div className="flex items-center mb-6">
-            <FileText className="w-6 h-6 text-gray-600 mr-3" />
-            <h3 className="text-xl font-bold text-gray-900">Detailed Analysis</h3>
-          </div>
-          
-          <div className="prose prose-gray max-w-none">
-            <p className="text-gray-700 leading-relaxed text-lg">
-              {sessionAnalysis.detailedAnalysis}
-            </p>
+          <h2 className="text-lg font-semibold text-gray-900 mb-6">Detailed Feedback</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <div>
+                <h3 className="font-medium text-gray-900 mb-2">Opening</h3>
+                <p className="text-gray-700 text-sm">{analysis.specific_feedback.opening}</p>
+              </div>
+              <div>
+                <h3 className="font-medium text-gray-900 mb-2">Product Presentation</h3>
+                <p className="text-gray-700 text-sm">{analysis.specific_feedback.product_presentation}</p>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <h3 className="font-medium text-gray-900 mb-2">Objection Handling</h3>
+                <p className="text-gray-700 text-sm">{analysis.specific_feedback.objection_handling}</p>
+              </div>
+              <div>
+                <h3 className="font-medium text-gray-900 mb-2">Closing</h3>
+                <p className="text-gray-700 text-sm">{analysis.specific_feedback.closing}</p>
+              </div>
+            </div>
           </div>
         </motion.div>
 
-        {/* Action Buttons */}
+        {/* Recommended Actions */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.7 }}
-          className="flex flex-col sm:flex-row gap-4"
+          className="bg-white p-6 rounded-lg shadow-sm border mb-8"
         >
+          <div className="flex items-center space-x-3 mb-4">
+            <FileText className="w-5 h-5 text-blue-500" />
+            <h2 className="text-lg font-semibold text-gray-900">Recommended Actions</h2>
+          </div>
+          <ul className="space-y-3">
+            {analysis.recommended_actions.map((action, index) => (
+              <li key={index} className="flex items-start space-x-3">
+                <span className="bg-blue-100 text-blue-600 px-2 py-1 rounded-full text-xs font-medium mt-0.5">
+                  {index + 1}
+                </span>
+                <span className="text-gray-700">{action}</span>
+              </li>
+            ))}
+          </ul>
+        </motion.div>
+
+        {/* Action Buttons */}
+        <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <Link
             href="/session"
-            className="flex-1 bg-blue-600 text-white px-6 py-4 rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center justify-center text-lg"
+            className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-center"
           >
             Start New Session
           </Link>
-          
-          <button
-            onClick={() => window.print()}
-            className="flex-1 border-2 border-gray-300 text-gray-700 px-6 py-4 rounded-lg font-semibold hover:bg-gray-50 transition-colors flex items-center justify-center text-lg"
+          <Link
+            href="/dashboard"
+            className="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-center"
           >
-            <Printer className="w-5 h-5 mr-2" />
-            Print Report
-          </button>
-        </motion.div>
+            Back to Dashboard
+          </Link>
+        </div>
       </div>
     </div>
   );

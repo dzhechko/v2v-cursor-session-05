@@ -4,8 +4,39 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Mic, Bot, TrendingUp, Users, Clock, Award } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { createClient } from '../lib/supabase';
+import LogoutButton from '../components/logout-button';
 
 export default function LandingPage() {
+  const [user, setUser] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const supabase = createClient();
+
+  useEffect(() => {
+    const checkUser = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setUser(session?.user || null);
+      } catch (error) {
+        console.error('Error checking user session:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    checkUser();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setUser(session?.user || null);
+        setIsLoading(false);
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  }, [supabase]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       {/* Header */}
@@ -16,14 +47,29 @@ export default function LandingPage() {
               <Bot className="h-8 w-8 text-blue-600" />
               <span className="ml-2 text-xl font-bold text-gray-900">Sales AI Trainer</span>
             </div>
-            <nav className="hidden md:flex space-x-8">
+            <nav className="hidden md:flex items-center space-x-8">
               <a href="#features" className="text-gray-600 hover:text-gray-900 transition-colors">Features</a>
               <Link href="/pricing" className="text-gray-600 hover:text-gray-900 transition-colors">Pricing</Link>
-              <Link href="/dashboard" className="text-gray-600 hover:text-gray-900 transition-colors">Dashboard</Link>
-              <Link href="/register" className="text-blue-600 hover:text-blue-700 transition-colors">Register</Link>
-              <Link href="/demo-request" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
-                Try Demo
-              </Link>
+              
+              {isLoading ? (
+                <div className="animate-pulse bg-gray-200 h-8 w-20 rounded"></div>
+              ) : user ? (
+                /* Logged in user navigation */
+                <>
+                  <Link href="/dashboard" className="text-gray-600 hover:text-gray-900 transition-colors">Dashboard</Link>
+                  <Link href="/settings" className="text-gray-600 hover:text-gray-900 transition-colors">Settings</Link>
+                  <LogoutButton variant="text" className="text-gray-600 hover:text-gray-900 transition-colors" />
+                </>
+              ) : (
+                /* Not logged in navigation */
+                <>
+                  <Link href="/login" className="text-gray-600 hover:text-gray-900 transition-colors">Login</Link>
+                  <Link href="/register" className="text-blue-600 hover:text-blue-700 transition-colors">Register</Link>
+                  <Link href="/demo-request" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                    Try Demo
+                  </Link>
+                </>
+              )}
             </nav>
           </div>
         </div>

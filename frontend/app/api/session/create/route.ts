@@ -19,11 +19,16 @@ export async function POST(req: NextRequest) {
   try {
     // Parse request body first
     const body = await req.json();
+    console.log('🔍 Session create request:', {
+      userId: body.userId,
+      hasAuthHeader: !!req.headers.get('authorization'),
+      bodyKeys: Object.keys(body)
+    });
     
     // Handle demo sessions (when userId is 'demo-user' or no auth header)
     const authHeader = req.headers.get('authorization');
     if (!authHeader || body.userId === 'demo-user') {
-      console.log('🎭 Creating demo session for user:', body.userId);
+      console.log('🎭 Creating demo session for user:', body.userId, 'Reason:', !authHeader ? 'No auth header' : 'Demo user');
       
       const demoSessionId = `demo-session-${Date.now()}`;
       
@@ -40,14 +45,19 @@ export async function POST(req: NextRequest) {
     }
 
     const token = authHeader.replace('Bearer ', '');
+    console.log('🔍 Verifying auth token...');
     
     // Verify the user token with Supabase
     const { data: { user }, error: userError } = await supabase.auth.getUser(token);
     if (userError || !user) {
+      console.error('❌ Auth verification failed:', userError);
       return NextResponse.json({ error: 'Invalid authorization token' }, { status: 401 });
     }
+    
+    console.log('✅ User verified:', user.email);
 
     // Get user profile
+    console.log('🔍 Looking for user profile...');
     const { data: profile, error: profileError } = await supabase
       .from(TABLES.PROFILES)
       .select('*')
@@ -55,8 +65,11 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (profileError || !profile) {
+      console.error('❌ Profile not found:', profileError);
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
     }
+    
+    console.log('✅ Profile found:', profile.email);
 
     // Body already parsed above, validate it
     const validatedData = validateSchema(body, createSessionSchema);
@@ -76,6 +89,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Create the session
+    console.log('🔍 Creating real session in database...');
     const { data: session, error: sessionError } = await supabase
       .from(TABLES.SESSIONS)
       .insert({
@@ -89,9 +103,11 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (sessionError) {
-      console.error('Session creation error:', sessionError);
+      console.error('❌ Session creation error:', sessionError);
       return NextResponse.json({ error: 'Failed to create session' }, { status: 500 });
     }
+    
+    console.log('✅ Real session created:', session.id);
 
     // Log audit trail
     await supabase.from(TABLES.AUDIT_LOGS).insert({

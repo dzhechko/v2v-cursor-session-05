@@ -20,6 +20,7 @@ import {
 import Link from 'next/link';
 import { toast } from 'react-hot-toast';
 import { createClient } from '../../lib/supabase';
+import LogoutButton from '../../components/logout-button';
 
 // Types
 interface DashboardStats {
@@ -114,11 +115,25 @@ export default function DashboardPage() {
           console.log('✅ Loading real user dashboard data...');
           setIsDemo(false);
           
+          // Get current session for API calls
+          const { data: { session } } = await supabase.auth.getSession();
+          const authHeaders = session ? {
+            'Authorization': `Bearer ${session.access_token}`
+          } : undefined;
+
           // Fetch real stats and sessions in parallel
           const [statsResponse, sessionsResponse] = await Promise.all([
-            fetch('/api/dashboard/stats'),
-            fetch('/api/dashboard/recent-sessions?limit=5')
+            fetch('/api/dashboard/stats', authHeaders ? { headers: authHeaders } : {}),
+            fetch('/api/dashboard/recent-sessions?limit=5', authHeaders ? { headers: authHeaders } : {})
           ]);
+
+          console.log('📊 Dashboard API responses:', {
+            stats: statsResponse.status,
+            sessions: sessionsResponse.status
+          });
+
+          // Log auth headers for debugging
+          console.log('🔑 Auth headers sent:', authHeaders ? 'Present' : 'Missing');
 
           if (statsResponse.ok) {
             const statsData = await statsResponse.json();
@@ -132,13 +147,21 @@ export default function DashboardPage() {
 
           if (sessionsResponse.ok) {
             const sessionsData = await sessionsResponse.json();
+            console.log('📋 Sessions data received:', sessionsData);
             if (Array.isArray(sessionsData)) {
               const sessions = sessionsData.map((session: any) => ({
                 ...session,
                 date: new Date(session.date)
               }));
+              console.log('📋 Processed sessions:', sessions.length);
               setRecentSessions(sessions);
+            } else {
+              console.warn('⚠️ Sessions data is not an array:', typeof sessionsData);
             }
+          } else {
+            console.error('❌ Sessions API failed:', sessionsResponse.status);
+            const errorText = await sessionsResponse.text();
+            console.error('❌ Sessions API error:', errorText);
           }
         }
         
@@ -250,10 +273,26 @@ export default function DashboardPage() {
                 }
               </p>
             </div>
-            <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
-              <span className="text-white font-semibold text-sm">
-                {userProfile ? userProfile.first_name?.[0]?.toUpperCase() || 'U' : 'DU'}
-              </span>
+            <div className="flex items-center space-x-4">
+              {/* Settings Link */}
+              <Link 
+                href="/settings"
+                className="flex items-center px-3 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Settings"
+              >
+                <Settings className="w-4 h-4 mr-2" />
+                <span className="text-sm">Settings</span>
+              </Link>
+              
+              {/* Logout Button */}
+              <LogoutButton variant="full" />
+              
+              {/* User Avatar */}
+              <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
+                <span className="text-white font-semibold text-sm">
+                  {userProfile ? userProfile.first_name?.[0]?.toUpperCase() || 'U' : 'DU'}
+                </span>
+              </div>
             </div>
           </div>
         </div>

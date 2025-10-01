@@ -125,7 +125,7 @@ export default function DashboardPage() {
           // Fetch real stats and sessions in parallel
           const [statsResponse, sessionsResponse] = await Promise.all([
             fetch('/api/dashboard/stats', authHeaders ? { headers: authHeaders } : {}),
-            fetch('/api/dashboard/recent-sessions?limit=5', authHeaders ? { headers: authHeaders } : {})
+            fetch('/api/dashboard/recent-sessions', authHeaders ? { headers: authHeaders } : {})
           ]);
 
           console.log('📊 Dashboard API responses:', {

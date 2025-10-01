@@ -46,6 +46,7 @@ export default function VoiceSessionInterface({ sessionId, onSessionEnd }: Voice
   // Refs
   const sessionTimerRef = useRef<NodeJS.Timeout>();
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const conversationIdRef = useRef<string | null>(null);
 
   // Request microphone permission
   const requestMicrophonePermission = useCallback(async () => {
@@ -79,6 +80,7 @@ export default function VoiceSessionInterface({ sessionId, onSessionEnd }: Voice
       // Store conversation ID if provided by ElevenLabs
       if (data.conversationId) {
         setElevenLabsConversationId(data.conversationId);
+        conversationIdRef.current = data.conversationId;
         console.log('📝 ElevenLabs conversation ID saved:', data.conversationId);
       }
 
@@ -132,7 +134,7 @@ export default function VoiceSessionInterface({ sessionId, onSessionEnd }: Voice
 
           if (sessionStartTime) {
             const duration = Math.floor((Date.now() - sessionStartTime.getTime()) / 1000);
-            const conversationId = elevenLabsConversationId || newConversation?.getConversationId?.() || `unknown-${Date.now()}`;
+            const conversationId = conversationIdRef.current || `unknown-${Date.now()}`;
             console.log('📝 Disconnected - ending session with conversation ID:', conversationId, 'and', transcript.length, 'messages');
             onSessionEnd(duration, conversationId, transcript);
           }
@@ -203,7 +205,7 @@ export default function VoiceSessionInterface({ sessionId, onSessionEnd }: Voice
 
       if (sessionStartTime) {
         const duration = Math.floor((Date.now() - sessionStartTime.getTime()) / 1000);
-        const conversationId = elevenLabsConversationId || conversation?.getConversationId?.() || `unknown-${Date.now()}`;
+        const conversationId = conversationIdRef.current || `unknown-${Date.now()}`;
         console.log('📝 Ending session with conversation ID:', conversationId, 'and', transcript.length, 'messages');
         onSessionEnd(duration, conversationId, transcript);
       }

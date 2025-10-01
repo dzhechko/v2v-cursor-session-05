@@ -563,12 +563,10 @@ export default function DashboardPage() {
                             variants={itemVariants}
                             className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
                             onClick={() => {
-                              if (session.status === 'demo' || isDemo) {
-                                // For demo sessions, show a modal with demo feedback
-                                toast.success('Demo session analytics loaded!');
-                              } else {
-                                router.push(`/session/${session.id}/results`);
-                              }
+                              // Use conversation_id if available, otherwise session id
+                              const targetId = (session as any).conversation_id || session.id;
+                              console.log('🔍 Navigating to session results:', targetId);
+                              router.push(`/session/${targetId}/results`);
                             }}
                           >
                             <div className="flex items-center space-x-3">

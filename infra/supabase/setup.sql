@@ -55,26 +55,29 @@ CREATE TABLE IF NOT EXISTS salesai_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   profile_id UUID REFERENCES salesai_profiles(id) ON DELETE CASCADE,
   company_id UUID REFERENCES salesai_companies(id),
-  
+
+  -- ElevenLabs conversation tracking
+  conversation_id VARCHAR(255) UNIQUE,
+
   -- Session metadata
   title VARCHAR(255) NOT NULL,
   status salesai_session_status DEFAULT 'active',
   started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   ended_at TIMESTAMP WITH TIME ZONE,
   duration_seconds INTEGER,
-  
-  -- Audio metadata  
+
+  -- Audio metadata
   audio_quality JSONB,
   audio_file_url TEXT,
   audio_file_size BIGINT,
-  
+
   -- Performance tracking
   minute_cost DECIMAL(10,4),
   processing_status TEXT DEFAULT 'pending',
-  
+
   -- Analytics summary
   analytics_summary JSONB,
-  
+
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -104,23 +107,23 @@ CREATE TABLE IF NOT EXISTS salesai_transcripts (
 -- Analysis results table
 CREATE TABLE IF NOT EXISTS salesai_analysis_results (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID REFERENCES salesai_sessions(id) ON DELETE CASCADE,
-  
+  session_id UUID UNIQUE REFERENCES salesai_sessions(id) ON DELETE CASCADE,
+
   -- Analysis metadata
   analysis_type VARCHAR(50),
   provider VARCHAR(50),
   version VARCHAR(20),
-  
+
   -- Results data
   results JSONB NOT NULL,
-  
+
   -- Quality metrics
   confidence_score DECIMAL(5,4),
   processing_time_ms INTEGER,
-  
+
   -- Cost tracking
   api_cost_usd DECIMAL(10,6),
-  
+
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -227,6 +230,7 @@ CREATE INDEX IF NOT EXISTS idx_salesai_sessions_profile ON salesai_sessions (pro
 CREATE INDEX IF NOT EXISTS idx_salesai_sessions_company ON salesai_sessions (company_id);
 CREATE INDEX IF NOT EXISTS idx_salesai_sessions_status ON salesai_sessions (status);
 CREATE INDEX IF NOT EXISTS idx_salesai_sessions_created ON salesai_sessions (created_at);
+CREATE INDEX IF NOT EXISTS idx_salesai_sessions_conversation ON salesai_sessions (conversation_id);
 CREATE INDEX IF NOT EXISTS idx_salesai_transcripts_session ON salesai_transcripts (session_id);
 CREATE INDEX IF NOT EXISTS idx_salesai_analysis_session ON salesai_analysis_results (session_id);
 CREATE INDEX IF NOT EXISTS idx_salesai_analytics_profile ON salesai_session_analytics (profile_id);

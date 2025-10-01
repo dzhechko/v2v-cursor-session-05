@@ -21,14 +21,18 @@ export async function POST(
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    const { data: cachedAnalysis } = await supabase
+    const { data: cachedAnalysis, error: cacheError } = await supabase
       .from('salesai_sessions')
       .select('id, conversation_id, analytics_summary, salesai_analysis_results(*)')
       .eq('conversation_id', conversationId)
       .single();
 
+    if (cacheError) {
+      console.log('ℹ️ No cached analysis found (expected for first analysis)');
+    }
+
     if (cachedAnalysis?.salesai_analysis_results?.[0]?.results) {
-      console.log('✅ Found cached analysis in database');
+      console.log('✅ Found cached analysis in database - returning cached result');
       const cached = cachedAnalysis.salesai_analysis_results[0].results;
       return NextResponse.json(cached);
     }
@@ -178,7 +182,7 @@ export async function POST(
 
     console.log('✅ ElevenLabs conversation analysis completed successfully');
 
-    // 5. Save to database asynchronously (don't wait for it)
+    // 5. Save to database for caching (prevents redundant GPT API calls)
     try {
       const authHeader = request.headers.get('authorization');
       let profileId = null;
@@ -202,8 +206,10 @@ export async function POST(
       }
 
       if (profileId) {
-        // Create session record
-        const { data: session } = await supabase
+        console.log('💾 Caching analysis to database for conversation:', conversationId);
+
+        // Create or update session record
+        const { data: session, error: sessionError } = await supabase
           .from('salesai_sessions')
           .upsert({
             conversation_id: conversationId,
@@ -214,7 +220,8 @@ export async function POST(
             processing_status: 'completed',
             analytics_summary: {
               overall_score: analysis.overall_score,
-              message_count: transcript.length
+              message_count: transcript.length,
+              cached_at: new Date().toISOString()
             }
           }, {
             onConflict: 'conversation_id',
@@ -223,9 +230,14 @@ export async function POST(
           .select('id')
           .single();
 
+        if (sessionError) {
+          console.error('❌ Failed to save session:', sessionError);
+          throw sessionError;
+        }
+
         if (session) {
-          // Save analysis results
-          await supabase
+          // Save analysis results with unique constraint per session
+          const { error: analysisError } = await supabase
             .from('salesai_analysis_results')
             .upsert({
               session_id: session.id,
@@ -239,12 +251,20 @@ export async function POST(
               ignoreDuplicates: false
             });
 
-          console.log('✅ Analysis cached in database');
+          if (analysisError) {
+            console.error('❌ Failed to save analysis results:', analysisError);
+            throw analysisError;
+          }
+
+          console.log('✅ Analysis successfully cached in database (session_id:', session.id, ')');
+          console.log('💡 Future requests for this conversation will use cached results');
         }
+      } else {
+        console.warn('⚠️ No profile found - analysis will not be cached');
       }
     } catch (dbError) {
-      console.warn('⚠️ Failed to cache analysis:', dbError);
-      // Don't fail the response if caching fails
+      console.error('❌ Failed to cache analysis:', dbError);
+      // Don't fail the response if caching fails - analysis is still returned to user
     }
 
     return NextResponse.json(result);

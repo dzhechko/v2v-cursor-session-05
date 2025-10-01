@@ -55,40 +55,73 @@ export async function POST(
 
     console.log('🔍 Starting ElevenLabs conversation analysis:', conversationId);
 
-    // 1. Fetch conversation details from ElevenLabs
-    const conversationResponse = await fetch(
-      `https://api.elevenlabs.io/v1/convai/conversations/${conversationId}`,
-      {
-        method: 'GET',
-        headers: {
-          'xi-api-key': elevenlabsApiKey,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
+    // 1. Fetch conversation details from ElevenLabs with retry logic
+    let conversationData;
+    let retryCount = 0;
+    const maxRetries = 3;
+    const retryDelay = 2000; // 2 seconds
 
-    if (!conversationResponse.ok) {
-      const errorText = await conversationResponse.text();
-      console.error('❌ Failed to fetch conversation from ElevenLabs:', errorText);
-      return NextResponse.json(
-        { error: 'Failed to fetch conversation from ElevenLabs' },
-        { status: conversationResponse.status }
+    while (retryCount <= maxRetries) {
+      const conversationResponse = await fetch(
+        `https://api.elevenlabs.io/v1/convai/conversations/${conversationId}`,
+        {
+          method: 'GET',
+          headers: {
+            'xi-api-key': elevenlabsApiKey,
+            'Content-Type': 'application/json',
+          },
+        }
       );
+
+      if (!conversationResponse.ok) {
+        const errorText = await conversationResponse.text();
+        console.error('❌ Failed to fetch conversation from ElevenLabs:', errorText);
+        return NextResponse.json(
+          { error: 'Failed to fetch conversation from ElevenLabs' },
+          { status: conversationResponse.status }
+        );
+      }
+
+      conversationData = await conversationResponse.json();
+      console.log('📋 ElevenLabs conversation data (attempt', retryCount + 1, '):', {
+        id: conversationData.conversation_id,
+        status: conversationData.status,
+        transcript_messages: conversationData.transcript?.length || 0,
+        duration: conversationData.metadata?.call_duration_secs
+      });
+
+      // 2. Check if transcript is available
+      const transcript = conversationData.transcript || [];
+
+      if (transcript.length > 0) {
+        console.log('✅ Transcript ready with', transcript.length, 'messages');
+        break; // Transcript is ready, exit retry loop
+      }
+
+      // If no transcript and we haven't exhausted retries, wait and retry
+      if (retryCount < maxRetries) {
+        console.log(`⏳ Transcript not ready yet, waiting ${retryDelay}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        retryCount++;
+      } else {
+        // Final retry exhausted, return error
+        console.error('❌ Transcript still not available after', maxRetries + 1, 'attempts');
+        return NextResponse.json(
+          {
+            error: 'Transcript not ready yet. Please wait a moment and try again.',
+            conversation_status: conversationData.status,
+            retry_after: 5 // Suggest retry after 5 seconds
+          },
+          { status: 400 }
+        );
+      }
     }
 
-    const conversationData = await conversationResponse.json();
-    console.log('📋 ElevenLabs conversation data:', {
-      id: conversationData.conversation_id,
-      status: conversationData.status,
-      transcript_messages: conversationData.transcript?.length || 0,
-      duration: conversationData.metadata?.call_duration_secs
-    });
-
-    // 2. Extract transcript for analysis
+    // 3. Extract transcript for analysis
     const transcript = conversationData.transcript || [];
     if (transcript.length === 0) {
       return NextResponse.json(
-        { error: 'No transcript available for analysis' },
+        { error: 'No transcript available for analysis after retries' },
         { status: 400 }
       );
     }

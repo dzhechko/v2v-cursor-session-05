@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OpenAI } from 'openai';
 
+export const dynamic = 'force-dynamic'; // Disable caching
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -10,7 +12,17 @@ export async function POST(
     const elevenlabsApiKey = process.env.ELEVENLABS_API_KEY;
     const openaiApiKey = process.env.OPENAI_API_KEY;
 
+    console.log('🔍 Analysis request for conversation:', conversationId);
+    console.log('🔑 API keys configured:', {
+      elevenlabs: !!elevenlabsApiKey,
+      openai: !!openaiApiKey
+    });
+
     if (!elevenlabsApiKey || !openaiApiKey) {
+      console.error('❌ Missing API keys:', {
+        elevenlabs: !elevenlabsApiKey,
+        openai: !openaiApiKey
+      });
       return NextResponse.json(
         { error: 'API keys not configured' },
         { status: 500 }
@@ -149,8 +161,15 @@ export async function POST(
 
   } catch (error) {
     console.error('❌ Error analyzing ElevenLabs conversation:', error);
+    console.error('❌ Error details:', {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
     return NextResponse.json(
-      { error: 'Internal server error during analysis' },
+      {
+        error: 'Internal server error during analysis',
+        details: error instanceof Error ? error.message : String(error)
+      },
       { status: 500 }
     );
   }

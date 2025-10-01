@@ -582,7 +582,7 @@ export default function DashboardPage() {
                                   <p className="font-medium text-gray-900">{session.title}</p>
                                   {(session as any).conversation_id && (
                                     <code className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded font-mono">
-                                      {((session as any).conversation_id as string).slice(-8)}
+                                      {((session as any).conversation_id as string).slice(-12)}
                                     </code>
                                   )}
                                 </div>

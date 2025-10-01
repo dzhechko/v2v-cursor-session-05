@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import { supabase, TABLES } from '../../../../lib/supabase-backend';
+import { supabase, TABLES } from '../../../../lib/server/supabase-backend';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,

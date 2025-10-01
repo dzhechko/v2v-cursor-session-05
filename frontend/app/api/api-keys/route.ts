@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '../../../lib/supabase-backend';
+import { supabase } from '../../../lib/server/supabase-backend';
 import { createHash, createCipher, createDecipher } from 'crypto';
 
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-key-change-this-in-production';

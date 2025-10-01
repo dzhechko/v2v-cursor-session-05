@@ -1,5 +1,20 @@
 # Supabase Setup для Sales AI Trainer
 
+## ⚠️ КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Автоматическое создание профилей
+
+**ПРОБЛЕМА ОБНАРУЖЕНА И ИСПРАВЛЕНА!** Новые пользователи НЕ получали автоматически профиль в `salesai_profiles` после регистрации.
+
+### 🔧 Решение применено:
+- ✅ Добавлен database trigger `on_auth_user_created` на таблицу `auth.users`
+- ✅ Функция `handle_new_user()` автоматически создает профили для всех новых пользователей
+- ✅ Все новые пользователи автоматически получают роль `demo_user`
+- ✅ Защита от дублирования с `ON CONFLICT`
+
+### 📖 Инструкция по применению исправления:
+**См. файл [FIX_PROFILE_CREATION.md](./FIX_PROFILE_CREATION.md) для детальных инструкций!**
+
+---
+
 ## 📝 Обзор
 
 Этот документ содержит инструкции по настройке базы данных Supabase для проекта Sales AI Trainer с использованием префикса `salesai_` для всех таблиц, чтобы избежать конфликтов с существующими данными.
@@ -165,3 +180,43 @@ npm run dev
 - Проверьте правильность URL и ключей в .env
 - Убедитесь, что сервис-роль ключ имеет необходимые права
 - Проверьте настройки CORS в Supabase (если необходимо)
+
+## 📋 RLS Policy Management (EN)
+
+**IMPORTANT: Policy Ownership Model**
+
+As of January 2025, RLS policies follow a single source of truth model to prevent duplicate policy errors and 406 conflicts:
+
+### Single Source of Truth: `/infra/supabase/policies.sql`
+
+- **✅ DO**: Use `policies.sql` for all RLS policy definitions
+- **✅ DO**: Apply policies AFTER running setup/migration scripts
+- **❌ DON'T**: Define policies in multiple files (setup.sql, migrations, etc.)
+
+### File Responsibilities:
+
+1. **`setup.sql`**: Schema, tables, indexes, triggers, functions, ENABLE RLS statements
+2. **`policies.sql`**: ALL RLS policy definitions (idempotent with DROP IF EXISTS)
+3. **Migration files**: Schema changes only, reference policies.sql for RLS
+
+### Application Sequence:
+
+```bash
+# 1. Apply schema and setup
+psql -f infra/supabase/setup.sql
+
+# 2. Apply migrations (if any)
+psql -f supabase/migrations/*.sql
+
+# 3. Apply RLS policies (LAST)
+psql -f infra/supabase/policies.sql
+```
+
+### Policy Architecture:
+
+- **Profile-based**: All policies use `auth.uid()` joined with `salesai_profiles`
+- **No JWT claims**: Eliminated `auth.jwt() ->> 'role'` patterns
+- **Idempotent**: Every CREATE POLICY has corresponding DROP POLICY IF EXISTS
+- **Comprehensive**: Covers all tables with appropriate role-based access
+
+This model prevents policy conflicts and ensures consistent, maintainable RLS across environments.

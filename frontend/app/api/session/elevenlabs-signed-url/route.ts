@@ -60,13 +60,24 @@ export async function GET(request: Request) {
     }
 
     const data = await response.json();
+
+    // Extract conversation_id from signed URL query parameters
+    let conversationId = null;
+    try {
+      const url = new URL(data.signed_url);
+      conversationId = url.searchParams.get('conversation_id');
+    } catch (e) {
+      console.warn('Could not parse conversation_id from signed URL');
+    }
+
     console.log('✅ ElevenLabs signed URL obtained successfully', {
-      hasConversationId: !!data.conversation_id
+      hasConversationId: !!conversationId,
+      conversationId
     });
 
     return new Response(JSON.stringify({
       signedUrl: data.signed_url,
-      conversationId: data.conversation_id, // Include conversation_id from ElevenLabs
+      conversationId: conversationId, // Extracted from signed_url query params
       agentId: AGENT_ID
     }), {
       status: 200,

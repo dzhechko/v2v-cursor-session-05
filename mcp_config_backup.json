@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "mcp-installer": {
+      "command": "npx",
+      "args": [
+        "@anaisbetts/mcp-installer"
+      ]
+    },
+    "server-brave-search": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-brave-search"
+      ],
+      "env": {
+        "BRAVE_API_KEY": "BSAQG0Gbqt4gRKPaAbLGRXlN7ayxM5s"
+      }
+    },
+    "server-puppeteer": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-puppeteer"
+      ]
+    }
+  }
+}

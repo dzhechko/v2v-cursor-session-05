@@ -1,5 +1,5 @@
 -- Create custom types
-CREATE TYPE salesai_user_role AS ENUM ('user', 'admin', 'super_admin');
+CREATE TYPE salesai_user_role AS ENUM ('user', 'admin', 'super_admin', 'demo_user');
 CREATE TYPE salesai_session_status AS ENUM ('active', 'completed', 'analyzed', 'archived');
 CREATE TYPE salesai_subscription_status AS ENUM ('active', 'trialing', 'past_due', 'canceled', 'incomplete');
 
@@ -25,7 +25,9 @@ CREATE TABLE IF NOT EXISTS salesai_profiles (
   position VARCHAR(255),
   phone VARCHAR(100),
   team_size INTEGER,
-  role salesai_user_role DEFAULT 'user',
+  role salesai_user_role DEFAULT 'demo_user',
+  demo_sessions_used INTEGER DEFAULT 0,
+  demo_minutes_used DECIMAL(5,2) DEFAULT 0,
   settings JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

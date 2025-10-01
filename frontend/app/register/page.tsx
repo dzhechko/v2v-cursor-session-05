@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Bot, ArrowLeft, Eye, EyeOff, User, Mail, Building, Users, Briefcase, Phone } from 'lucide-react';
+import { Bot, ArrowLeft, Eye, EyeOff, User, Mail, Building, Users, Phone } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { createClient } from '../../lib/supabase';
 
@@ -17,7 +17,6 @@ interface RegistrationForm {
   companyName: string;
   phone: string;
   teamSize: string;
-  role: string;
 }
 
 export default function RegisterPage() {
@@ -29,13 +28,13 @@ export default function RegisterPage() {
     lastName: '',
     companyName: '',
     phone: '',
-    teamSize: '',
-    role: 'user'
+    teamSize: ''
   });
   
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCreatingProfile, setIsCreatingProfile] = useState(false);
   const [errors, setErrors] = useState<Partial<RegistrationForm>>({});
   
   const router = useRouter();
@@ -125,37 +124,58 @@ export default function RegisterPage() {
             company_name: formData.companyName.trim(),
             phone: formData.phone.trim() || null,
             team_size: formData.teamSize ? Number(formData.teamSize) : null,
-            role: formData.role,
           },
           emailRedirectTo: `${window.location.origin}/auth/callback?redirectTo=/dashboard`
         }
       });
 
       if (error) {
+        console.error('🚨 Registration error:', error);
+
         if (error.message.includes('User already registered')) {
+          console.log('⚠️ User attempted to register with existing email:', formData.email);
           toast.error('Account already exists. Please sign in instead.');
           setTimeout(() => router.push('/login'), 2000);
         } else if (error.message.includes('Password should be')) {
+          console.log('⚠️ Password validation failed for registration');
           setErrors({ password: 'Password must be at least 6 characters long' });
           toast.error('Password requirements not met');
         } else if (error.message.includes('Invalid email')) {
+          console.log('⚠️ Invalid email format during registration:', formData.email);
           setErrors({ email: 'Please enter a valid email address' });
           toast.error('Invalid email address');
+        } else if (error.message.includes('profile creation failed')) {
+          console.error('💥 Profile creation failed during registration flow');
+          toast.error('Account created but profile setup failed. Please contact support or try logging in.');
         } else {
-          toast.error(error.message || 'Registration failed');
+          console.error('❌ Unexpected registration error:', error.message);
+          toast.error(error.message || 'Registration failed. Please try again or contact support.');
         }
         return;
       }
 
       if (data.user) {
+        console.log('✅ User registration successful:', {
+          email: data.user.email,
+          id: data.user.id,
+          confirmed: !!data.user.email_confirmed_at,
+          metadata: data.user.user_metadata
+        });
+
         // Registration successful
         if (data.user.email_confirmed_at) {
           // Auto-confirmed (likely in dev environment)
-          toast.success('Account created successfully! Welcome to Sales AI Trainer.');
-          setTimeout(() => router.push('/dashboard'), 1500);
+          console.log('🎉 Auto-confirmed registration - redirecting to dashboard');
+          setIsCreatingProfile(true);
+          toast.success('Account created successfully! Setting up your demo account...');
+          setTimeout(() => {
+            setIsCreatingProfile(false);
+            router.push('/dashboard');
+          }, 1500);
         } else {
           // Email confirmation required
-          toast.success('Account created! Please check your email to confirm your account.');
+          console.log('📧 Email confirmation required - redirecting to login');
+          toast.success('Account created! Please check your email to confirm your account and complete your demo profile setup.');
           setTimeout(() => router.push('/login?message=check_email'), 2000);
         }
         
@@ -168,14 +188,25 @@ export default function RegisterPage() {
           lastName: '',
           companyName: '',
           phone: '',
-          teamSize: '',
-          role: 'user'
+          teamSize: ''
         });
       }
       
     } catch (error) {
-      console.error('Registration error:', error);
-      toast.error('Registration failed. Please try again.');
+      console.error('💥 Unexpected registration error:', error);
+
+      // Provide user-friendly error messages based on error type
+      if (error instanceof Error) {
+        if (error.message.includes('network') || error.message.includes('fetch')) {
+          toast.error('Network error. Please check your connection and try again.');
+        } else if (error.message.includes('timeout')) {
+          toast.error('Request timeout. Please try again.');
+        } else {
+          toast.error('Registration failed. Please try again or contact support.');
+        }
+      } else {
+        toast.error('An unexpected error occurred. Please try again.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -368,25 +399,21 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* Position field */}
-            <div>
-              <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-2">
-                Position *
-              </label>
-              <div className="relative">
-                <Briefcase className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
-                <select
-                  id="role"
-                  value={formData.role}
-                  onChange={(e) => handleInputChange('role', e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                >
-                  <option value="user">Sales Representative</option>
-                  <option value="manager">Sales Manager</option>
-                  <option value="admin">Team Admin</option>
-                  <option value="director">Sales Director</option>
-                  <option value="vp">VP of Sales</option>
-                </select>
+            {/* Demo account info */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-blue-800">Demo Account Limits</h3>
+                  <p className="text-sm text-blue-700 mt-1">
+                    New registrations automatically receive a demo account with <strong>1 conversation</strong> limited to <strong>2 minutes maximum</strong>.
+                    This allows you to experience our AI-powered sales training before upgrading to unlimited sessions.
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -454,14 +481,19 @@ export default function RegisterPage() {
             {/* Submit button */}
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isCreatingProfile}
               className={`w-full py-3 px-4 rounded-lg font-semibold transition-colors ${
-                isSubmitting
+                isSubmitting || isCreatingProfile
                   ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
                   : 'bg-blue-600 text-white hover:bg-blue-700'
               }`}
             >
-              {isSubmitting ? 'Creating Account...' : 'Create Account'}
+              {isCreatingProfile
+                ? 'Setting up demo account...'
+                : isSubmitting
+                  ? 'Creating Account...'
+                  : 'Create Account'
+              }
             </button>
 
             {/* Login link */}

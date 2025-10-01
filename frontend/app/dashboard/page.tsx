@@ -65,6 +65,7 @@ export default function DashboardPage() {
   const [user, setUser] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [isDemo, setIsDemo] = useState(false);
+  const [demoLimits, setDemoLimits] = useState<any>(null);
   
   const router = useRouter();
   const supabase = createClient();
@@ -132,16 +133,45 @@ export default function DashboardPage() {
             sessions: sessionsResponse.status
           });
 
-          // Log auth headers for debugging
-          console.log('🔑 Auth headers sent:', authHeaders ? 'Present' : 'Missing');
-
-          if (statsResponse.ok) {
+          // Handle 406 errors gracefully by falling back to demo mode
+          if (statsResponse.status === 406) {
+            console.log('⚠️ Stats API returned 406, falling back to demo mode');
+            setIsDemo(true);
+            setStats({
+              minutesLeft: 2,
+              sessionsToday: 0,
+              progressScore: 0,
+              streakDays: 0
+            });
+          } else if (statsResponse.ok) {
             const statsData = await statsResponse.json();
+
+            // Check if this is a demo user response
+            if (statsData.isDemo) {
+              setIsDemo(true);
+              console.log('👤 Demo user detected from stats API');
+            }
+
             setStats({
               minutesLeft: statsData.minutesLeft || 0,
               sessionsToday: statsData.sessionsToday || 0,
               progressScore: statsData.progressScore || 0,
               streakDays: statsData.streakDays || 0
+            });
+
+            // Store demo limits if available for UI display
+            if (statsData.demoLimits) {
+              setDemoLimits(statsData.demoLimits);
+            }
+          } else {
+            console.error('❌ Stats API failed:', statsResponse.status);
+            // Fallback to demo stats
+            setIsDemo(true);
+            setStats({
+              minutesLeft: 2,
+              sessionsToday: 0,
+              progressScore: 0,
+              streakDays: 0
             });
           }
 
@@ -191,14 +221,35 @@ export default function DashboardPage() {
       if (session) {
         setUser(session.user);
         
-        // Get user profile
-        const { data: profile } = await supabase
-          .from('salesai_profiles')
-          .select('*')
-          .eq('auth_id', session.user.id)
-          .single();
-        
-        setUserProfile(profile);
+        // Get user profile with error handling
+        try {
+          const { data: profile, error: profileError } = await supabase
+            .from('salesai_profiles')
+            .select('*')
+            .eq('auth_id', session.user.id)
+            .maybeSingle(); // Use maybeSingle() to avoid errors when profile doesn't exist
+
+          if (profileError) {
+            console.error('❌ Profile query error:', profileError);
+            // Profile query failed, but don't block the dashboard
+            setUserProfile(null);
+          } else if (!profile) {
+            console.warn('⚠️ No profile found for user, may need to create one');
+            setUserProfile(null);
+          } else {
+            console.log('✅ Profile loaded:', profile.email, 'Role:', profile.role);
+            setUserProfile(profile);
+
+            // Check if this is a demo user
+            if (profile.role === 'demo_user') {
+              setIsDemo(true);
+              console.log('👤 Demo user profile detected');
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error fetching profile:', error);
+          setUserProfile(null);
+        }
       } else {
         // Check for demo user info
         const demoUser = localStorage.getItem('demo-user');
@@ -315,7 +366,14 @@ export default function DashboardPage() {
                 <span className="text-2xl font-bold text-gray-900">{displayStats.minutesLeft}</span>
               )}
             </div>
-            <p className="text-sm text-gray-600">Minutes Left</p>
+            <p className="text-sm text-gray-600">
+              {isDemo ? 'Demo Minutes Left' : 'Minutes Left'}
+            </p>
+            {isDemo && demoLimits && (
+              <p className="text-xs text-blue-600 mt-1">
+                Demo limit: {demoLimits.maxMinutes} min total
+              </p>
+            )}
           </motion.div>
 
           <motion.div variants={itemVariants} className="bg-white rounded-xl p-6 shadow-lg">
@@ -363,35 +421,85 @@ export default function DashboardPage() {
           className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8"
         >
           <motion.div variants={itemVariants}>
-            <Link href="/session" className="block">
-              <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-6 text-white hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
+            {isDemo && demoLimits && !demoLimits.canStartSession ? (
+              <div className="bg-gradient-to-r from-gray-500 to-gray-600 rounded-xl p-6 text-white">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-lg font-semibold mb-2">Start Training Session</h3>
-                    <p className="text-blue-100 text-sm">Practice with AI-powered voice coaching</p>
+                    <h3 className="text-lg font-semibold mb-2">Demo Limit Reached</h3>
+                    <p className="text-gray-200 text-sm">Upgrade to continue training</p>
                   </div>
                   <div className="bg-white/20 rounded-full p-3">
-                    <Play className="w-6 h-6" />
+                    <ArrowRight className="w-6 h-6" />
                   </div>
                 </div>
+                <div className="mt-4">
+                  <Link
+                    href="/pricing"
+                    className="bg-white text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors inline-block"
+                  >
+                    Upgrade Now
+                  </Link>
+                </div>
               </div>
-            </Link>
+            ) : (
+              <Link href="/session" className="block">
+                <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-6 text-white hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold mb-2">
+                        {isDemo ? 'Start Demo Session' : 'Start Training Session'}
+                      </h3>
+                      <p className="text-blue-100 text-sm">
+                        {isDemo ? `Practice with AI (${demoLimits?.sessionsLeft || 0} sessions left)` : 'Practice with AI-powered voice coaching'}
+                      </p>
+                    </div>
+                    <div className="bg-white/20 rounded-full p-3">
+                      <Play className="w-6 h-6" />
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            )}
           </motion.div>
 
           <motion.div variants={itemVariants}>
-            <Link href="/session?type=custom" className="block">
-              <div className="bg-gradient-to-r from-purple-600 to-purple-700 rounded-xl p-6 text-white hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
+            {isDemo && demoLimits && !demoLimits.canStartSession ? (
+              <div className="bg-gradient-to-r from-gray-500 to-gray-600 rounded-xl p-6 text-white">
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-lg font-semibold mb-2">Custom Practice</h3>
-                    <p className="text-purple-100 text-sm">Create your own training scenario</p>
+                    <p className="text-gray-200 text-sm">Upgrade to unlock custom scenarios</p>
                   </div>
                   <div className="bg-white/20 rounded-full p-3">
                     <Settings className="w-6 h-6" />
                   </div>
                 </div>
+                <div className="mt-4">
+                  <Link
+                    href="/pricing"
+                    className="bg-white text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors inline-block"
+                  >
+                    Upgrade Now
+                  </Link>
+                </div>
               </div>
-            </Link>
+            ) : (
+              <Link href="/session?type=custom" className="block">
+                <div className="bg-gradient-to-r from-purple-600 to-purple-700 rounded-xl p-6 text-white hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold mb-2">Custom Practice</h3>
+                      <p className="text-purple-100 text-sm">
+                        {isDemo ? 'Available after first session' : 'Create your own training scenario'}
+                      </p>
+                    </div>
+                    <div className="bg-white/20 rounded-full p-3">
+                      <Settings className="w-6 h-6" />
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            )}
           </motion.div>
         </motion.div>
 

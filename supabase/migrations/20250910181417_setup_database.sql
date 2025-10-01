@@ -6,7 +6,7 @@
 -- ============================================================================
 
 -- Create custom types
-CREATE TYPE salesai_user_role AS ENUM ('user', 'admin', 'super_admin');
+CREATE TYPE salesai_user_role AS ENUM ('user', 'admin', 'super_admin', 'demo_user');
 CREATE TYPE salesai_session_status AS ENUM ('active', 'completed', 'analyzed', 'archived');
 CREATE TYPE salesai_subscription_status AS ENUM ('active', 'trialing', 'past_due', 'canceled', 'incomplete');
 
@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS salesai_profiles (
   position VARCHAR(255),
   phone VARCHAR(100),
   team_size INTEGER,
-  role salesai_user_role DEFAULT 'user',
+  role salesai_user_role DEFAULT 'demo_user',
+  demo_sessions_used INTEGER DEFAULT 0,
+  demo_minutes_used DECIMAL(5,2) DEFAULT 0,
   settings JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -298,102 +300,8 @@ ALTER TABLE salesai_usage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE salesai_feedback ENABLE ROW LEVEL SECURITY;
 ALTER TABLE salesai_audit_logs ENABLE ROW LEVEL SECURITY;
 
--- Drop existing policies if they exist
-DROP POLICY IF EXISTS "Super Admins can see all companies" ON salesai_companies;
-DROP POLICY IF EXISTS "Admins can see their own company" ON salesai_companies;
-DROP POLICY IF EXISTS "Super Admins can insert companies" ON salesai_companies;
-DROP POLICY IF EXISTS "Super Admins can update companies" ON salesai_companies;
-DROP POLICY IF EXISTS "Super Admins can delete companies" ON salesai_companies;
-
--- Companies table policies
-CREATE POLICY "Super Admins can see all companies" 
-  ON salesai_companies FOR SELECT
-  USING (auth.jwt() ->> 'role' = 'super_admin');
-
-CREATE POLICY "Admins can see their own company" 
-  ON salesai_companies FOR SELECT
-  USING (id = (auth.jwt() ->> 'company_id')::uuid);
-
-CREATE POLICY "Super Admins can insert companies" 
-  ON salesai_companies FOR INSERT
-  WITH CHECK (auth.jwt() ->> 'role' = 'super_admin');
-
-CREATE POLICY "Super Admins can update companies" 
-  ON salesai_companies FOR UPDATE
-  USING (auth.jwt() ->> 'role' = 'super_admin');
-
-CREATE POLICY "Super Admins can delete companies" 
-  ON salesai_companies FOR DELETE
-  USING (auth.jwt() ->> 'role' = 'super_admin');
-
--- Profiles table policies
-DROP POLICY IF EXISTS "Users can see own profile" ON salesai_profiles;
-DROP POLICY IF EXISTS "Admins can see profiles in their company" ON salesai_profiles;
-DROP POLICY IF EXISTS "Super Admins can see all profiles" ON salesai_profiles;
-DROP POLICY IF EXISTS "Users can update own profile" ON salesai_profiles;
-DROP POLICY IF EXISTS "Admins can update profiles in their company" ON salesai_profiles;
-DROP POLICY IF EXISTS "Super Admins can update all profiles" ON salesai_profiles;
-
-CREATE POLICY "Users can see own profile" 
-  ON salesai_profiles FOR SELECT
-  USING (auth.uid() = auth_id);
-
-CREATE POLICY "Users can update own profile" 
-  ON salesai_profiles FOR UPDATE
-  USING (auth.uid() = auth_id);
-
--- Sessions table policies
-DROP POLICY IF EXISTS "Users can see own sessions" ON salesai_sessions;
-DROP POLICY IF EXISTS "Users can create sessions" ON salesai_sessions;
-DROP POLICY IF EXISTS "Users can update own sessions" ON salesai_sessions;
-
-CREATE POLICY "Users can see own sessions" 
-  ON salesai_sessions FOR SELECT
-  USING (profile_id IN (
-    SELECT id FROM salesai_profiles WHERE auth_id = auth.uid()
-  ));
-
-CREATE POLICY "Users can create sessions" 
-  ON salesai_sessions FOR INSERT
-  WITH CHECK (profile_id IN (
-    SELECT id FROM salesai_profiles WHERE auth_id = auth.uid()
-  ));
-
-CREATE POLICY "Users can update own sessions" 
-  ON salesai_sessions FOR UPDATE
-  USING (profile_id IN (
-    SELECT id FROM salesai_profiles WHERE auth_id = auth.uid()
-  ));
-
--- API Keys table policies  
-DROP POLICY IF EXISTS "Users can see own API keys" ON salesai_api_keys;
-DROP POLICY IF EXISTS "Users can manage own API keys" ON salesai_api_keys;
-DROP POLICY IF EXISTS "Users can update own API keys" ON salesai_api_keys;
-DROP POLICY IF EXISTS "Users can delete own API keys" ON salesai_api_keys;
-
-CREATE POLICY "Users can see own API keys" 
-  ON salesai_api_keys FOR SELECT
-  USING (profile_id IN (
-    SELECT id FROM salesai_profiles WHERE auth_id = auth.uid()
-  ));
-
-CREATE POLICY "Users can manage own API keys" 
-  ON salesai_api_keys FOR INSERT
-  WITH CHECK (profile_id IN (
-    SELECT id FROM salesai_profiles WHERE auth_id = auth.uid()
-  ));
-
-CREATE POLICY "Users can update own API keys" 
-  ON salesai_api_keys FOR UPDATE
-  USING (profile_id IN (
-    SELECT id FROM salesai_profiles WHERE auth_id = auth.uid()
-  ));
-
-CREATE POLICY "Users can delete own API keys" 
-  ON salesai_api_keys FOR DELETE
-  USING (profile_id IN (
-    SELECT id FROM salesai_profiles WHERE auth_id = auth.uid()
-  ));
+-- RLS policies are defined in /infra/supabase/policies.sql
+-- Apply that file after running this migration
 
 -- ============================================================================
 -- GDPR COMPLIANCE

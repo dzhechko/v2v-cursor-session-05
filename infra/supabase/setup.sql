@@ -298,102 +298,8 @@ ALTER TABLE salesai_usage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE salesai_feedback ENABLE ROW LEVEL SECURITY;
 ALTER TABLE salesai_audit_logs ENABLE ROW LEVEL SECURITY;
 
--- Drop existing policies if they exist
-DROP POLICY IF EXISTS "Super Admins can see all companies" ON salesai_companies;
-DROP POLICY IF EXISTS "Admins can see their own company" ON salesai_companies;
-DROP POLICY IF EXISTS "Super Admins can insert companies" ON salesai_companies;
-DROP POLICY IF EXISTS "Super Admins can update companies" ON salesai_companies;
-DROP POLICY IF EXISTS "Super Admins can delete companies" ON salesai_companies;
-
--- Companies table policies
-CREATE POLICY "Super Admins can see all companies" 
-  ON salesai_companies FOR SELECT
-  USING (auth.jwt() ->> 'role' = 'super_admin');
-
-CREATE POLICY "Admins can see their own company" 
-  ON salesai_companies FOR SELECT
-  USING (id = (auth.jwt() ->> 'company_id')::uuid);
-
-CREATE POLICY "Super Admins can insert companies" 
-  ON salesai_companies FOR INSERT
-  WITH CHECK (auth.jwt() ->> 'role' = 'super_admin');
-
-CREATE POLICY "Super Admins can update companies" 
-  ON salesai_companies FOR UPDATE
-  USING (auth.jwt() ->> 'role' = 'super_admin');
-
-CREATE POLICY "Super Admins can delete companies" 
-  ON salesai_companies FOR DELETE
-  USING (auth.jwt() ->> 'role' = 'super_admin');
-
--- Profiles table policies
-DROP POLICY IF EXISTS "Users can see own profile" ON salesai_profiles;
-DROP POLICY IF EXISTS "Admins can see profiles in their company" ON salesai_profiles;
-DROP POLICY IF EXISTS "Super Admins can see all profiles" ON salesai_profiles;
-DROP POLICY IF EXISTS "Users can update own profile" ON salesai_profiles;
-DROP POLICY IF EXISTS "Admins can update profiles in their company" ON salesai_profiles;
-DROP POLICY IF EXISTS "Super Admins can update all profiles" ON salesai_profiles;
-
-CREATE POLICY "Users can see own profile" 
-  ON salesai_profiles FOR SELECT
-  USING (auth.uid() = auth_id);
-
-CREATE POLICY "Users can update own profile" 
-  ON salesai_profiles FOR UPDATE
-  USING (auth.uid() = auth_id);
-
--- Sessions table policies
-DROP POLICY IF EXISTS "Users can see own sessions" ON salesai_sessions;
-DROP POLICY IF EXISTS "Users can create sessions" ON salesai_sessions;
-DROP POLICY IF EXISTS "Users can update own sessions" ON salesai_sessions;
-
-CREATE POLICY "Users can see own sessions" 
-  ON salesai_sessions FOR SELECT
-  USING (profile_id IN (
-    SELECT id FROM salesai_profiles WHERE auth_id = auth.uid()
-  ));
-
-CREATE POLICY "Users can create sessions" 
-  ON salesai_sessions FOR INSERT
-  WITH CHECK (profile_id IN (
-    SELECT id FROM salesai_profiles WHERE auth_id = auth.uid()
-  ));
-
-CREATE POLICY "Users can update own sessions" 
-  ON salesai_sessions FOR UPDATE
-  USING (profile_id IN (
-    SELECT id FROM salesai_profiles WHERE auth_id = auth.uid()
-  ));
-
--- API Keys table policies  
-DROP POLICY IF EXISTS "Users can see own API keys" ON salesai_api_keys;
-DROP POLICY IF EXISTS "Users can manage own API keys" ON salesai_api_keys;
-DROP POLICY IF EXISTS "Users can update own API keys" ON salesai_api_keys;
-DROP POLICY IF EXISTS "Users can delete own API keys" ON salesai_api_keys;
-
-CREATE POLICY "Users can see own API keys" 
-  ON salesai_api_keys FOR SELECT
-  USING (profile_id IN (
-    SELECT id FROM salesai_profiles WHERE auth_id = auth.uid()
-  ));
-
-CREATE POLICY "Users can manage own API keys" 
-  ON salesai_api_keys FOR INSERT
-  WITH CHECK (profile_id IN (
-    SELECT id FROM salesai_profiles WHERE auth_id = auth.uid()
-  ));
-
-CREATE POLICY "Users can update own API keys" 
-  ON salesai_api_keys FOR UPDATE
-  USING (profile_id IN (
-    SELECT id FROM salesai_profiles WHERE auth_id = auth.uid()
-  ));
-
-CREATE POLICY "Users can delete own API keys" 
-  ON salesai_api_keys FOR DELETE
-  USING (profile_id IN (
-    SELECT id FROM salesai_profiles WHERE auth_id = auth.uid()
-  ));
+-- RLS policies are defined in /infra/supabase/policies.sql
+-- Apply that file after running this setup script
 
 -- ============================================================================
 -- GDPR COMPLIANCE
@@ -458,6 +364,122 @@ BEGIN
   );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================================
+-- AUTO-CREATE PROFILE TRIGGER
+-- ============================================================================
+-- This trigger automatically creates a profile in salesai_profiles
+-- when a new user is created in auth.users
+
+-- Function to handle new user creation
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+DECLARE
+  default_company_id UUID;
+  user_email TEXT;
+  user_first_name TEXT;
+  user_last_name TEXT;
+  user_company_name TEXT;
+  extracted_domain TEXT;
+BEGIN
+  -- Extract user data from auth metadata
+  user_email := NEW.email;
+  user_first_name := COALESCE(
+    NEW.raw_user_meta_data->>'first_name',
+    NEW.raw_user_meta_data->>'full_name',
+    split_part(user_email, '@', 1)
+  );
+  user_last_name := COALESCE(
+    NEW.raw_user_meta_data->>'last_name',
+    ''
+  );
+  user_company_name := COALESCE(
+    NEW.raw_user_meta_data->>'company',
+    NEW.raw_user_meta_data->>'company_name',
+    'Personal Account'
+  );
+
+  -- Extract domain from email
+  extracted_domain := split_part(user_email, '@', 2);
+
+  -- Try to find existing company by name
+  SELECT id INTO default_company_id
+  FROM public.salesai_companies
+  WHERE name = user_company_name
+  LIMIT 1;
+
+  -- If company doesn't exist, create it
+  IF default_company_id IS NULL THEN
+    INSERT INTO public.salesai_companies (name, domain, settings)
+    VALUES (
+      user_company_name,
+      extracted_domain,
+      '{}'::jsonb
+    )
+    RETURNING id INTO default_company_id;
+  END IF;
+
+  -- Create user profile with demo_user role by default
+  INSERT INTO public.salesai_profiles (
+    auth_id,
+    company_id,
+    email,
+    first_name,
+    last_name,
+    position,
+    phone,
+    team_size,
+    role,
+    demo_sessions_used,
+    demo_minutes_used,
+    settings
+  )
+  VALUES (
+    NEW.id,
+    default_company_id,
+    LOWER(TRIM(user_email)),
+    TRIM(user_first_name),
+    TRIM(user_last_name),
+    COALESCE(NEW.raw_user_meta_data->>'position', NULL),
+    COALESCE(NEW.raw_user_meta_data->>'phone', NULL),
+    CASE
+      WHEN NEW.raw_user_meta_data->>'team_size' IS NOT NULL
+      THEN (NEW.raw_user_meta_data->>'team_size')::INTEGER
+      ELSE NULL
+    END,
+    'demo_user', -- Always create as demo_user by default
+    0, -- demo_sessions_used
+    0, -- demo_minutes_used
+    jsonb_build_object(
+      'notifications', true,
+      'email_summaries', true,
+      'onboarding_completed', false
+    )
+  )
+  ON CONFLICT (auth_id) DO NOTHING; -- Prevent duplicate profile creation
+
+  RETURN NEW;
+EXCEPTION
+  WHEN OTHERS THEN
+    -- Log error but don't block user creation
+    RAISE WARNING 'Failed to create profile for user %: %', NEW.id, SQLERRM;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Drop existing trigger if it exists
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+
+-- Create trigger on auth.users table
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_new_user();
+
+-- Grant necessary permissions
+GRANT USAGE ON SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON public.salesai_companies TO postgres, anon, authenticated, service_role;
+GRANT ALL ON public.salesai_profiles TO postgres, anon, authenticated, service_role;
 
 -- ============================================================================
 -- SETUP COMPLETE

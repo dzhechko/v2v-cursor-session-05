@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
       console.log('❌ No authenticated session for stats');
       // Return demo stats for non-authenticated users
       return NextResponse.json({
-        minutesLeft: 100,
+        minutesLeft: 2,
         sessionsToday: 0,
         progressScore: 0,
         streakDays: 0,
@@ -44,19 +44,74 @@ export async function GET(request: NextRequest) {
 
     console.log('✅ Getting real stats for user:', session.user.id);
 
-    // Get user profile
-    const { data: profile } = await supabase
+    // Get user profile with error handling
+    const { data: profile, error: profileError } = await supabase
       .from('salesai_profiles')
       .select('*')
       .eq('auth_id', session.user.id)
-      .single();
+      .maybeSingle(); // Use maybeSingle() to avoid errors when profile doesn't exist
 
-    if (!profile) {
-      console.warn('⚠️ User profile not found');
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    if (profileError) {
+      console.error('❌ Profile query error:', profileError);
+      // Return demo stats if profile query fails
+      return NextResponse.json({
+        minutesLeft: 2,
+        sessionsToday: 0,
+        progressScore: 0,
+        streakDays: 0,
+        totalMinutesUsed: 0,
+        totalSessions: 0,
+        averageScore: 0,
+        isDemo: true,
+        error: 'Profile query failed'
+      });
     }
 
-    // Get user's subscription to determine minutes left
+    if (!profile) {
+      console.warn('⚠️ User profile not found, creating default demo profile');
+      // Instead of returning 404, create a default demo profile or return demo stats
+      return NextResponse.json({
+        minutesLeft: 2,
+        sessionsToday: 0,
+        progressScore: 0,
+        streakDays: 0,
+        totalMinutesUsed: 0,
+        totalSessions: 0,
+        averageScore: 0,
+        isDemo: true,
+        error: 'Profile needs to be created'
+      });
+    }
+
+    // Handle demo users with specific stats
+    if (profile.role === 'demo_user') {
+      console.log('📊 Getting demo user stats');
+      const demoSessionsUsed = profile.demo_sessions_used || 0;
+      const demoMinutesUsed = profile.demo_minutes_used || 0;
+      const minutesLeft = Math.max(0, 2 - demoMinutesUsed);
+      const sessionsLeft = Math.max(0, 1 - demoSessionsUsed);
+
+      return NextResponse.json({
+        minutesLeft,
+        sessionsToday: demoSessionsUsed,
+        progressScore: 0,
+        streakDays: 0,
+        totalMinutesUsed: demoMinutesUsed,
+        totalSessions: demoSessionsUsed,
+        averageScore: 0,
+        isDemo: true,
+        demoLimits: {
+          maxSessions: 1,
+          maxMinutes: 2,
+          sessionsUsed: demoSessionsUsed,
+          minutesUsed: demoMinutesUsed,
+          sessionsLeft,
+          canStartSession: sessionsLeft > 0 && minutesLeft > 0
+        }
+      });
+    }
+
+    // Get user's subscription to determine minutes left (skip for demo users)
     const { data: subscription } = await supabase
       .from('salesai_subscriptions')
       .select('*')
@@ -64,19 +119,15 @@ export async function GET(request: NextRequest) {
       .eq('status', 'active')
       .order('created_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle(); // Use maybeSingle() instead of single() to avoid errors when no subscription exists
 
-    // Calculate minutes left based on subscription tier
-    const tierLimits = {
-      'starter': 100,
-      'professional': 500,
-      'team': 1500,
-      'enterprise': 999999
-    };
+    // Calculate minutes left from subscription data
+    let minutesLeft = 100; // Default fallback
+    if (subscription) {
+      minutesLeft = Math.max(0, subscription.minutes_limit - subscription.minutes_used);
+    }
 
-    const maxMinutes = subscription ? tierLimits[subscription.tier as keyof typeof tierLimits] || 100 : 100;
-
-    // Get usage statistics
+    // Get usage statistics for display purposes (not used in minutes calculation)
     const { data: usage } = await supabase
       .from('salesai_usage')
       .select('minutes_used')
@@ -84,7 +135,6 @@ export async function GET(request: NextRequest) {
       .gte('created_at', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString());
 
     const totalMinutesUsed = usage?.reduce((sum, record) => sum + record.minutes_used, 0) || 0;
-    const minutesLeft = Math.max(0, maxMinutes - totalMinutesUsed);
 
     // Get sessions for today
     const today = new Date();
@@ -99,15 +149,24 @@ export async function GET(request: NextRequest) {
     // Get all completed sessions for statistics
     const { data: allSessions } = await supabase
       .from('salesai_sessions')
-      .select('overall_score, created_at')
+      .select('id, created_at')
       .eq('profile_id', profile.id)
       .eq('status', 'completed')
       .order('created_at', { ascending: false })
       .limit(100);
 
-    // Calculate average score
-    const averageScore = allSessions && allSessions.length > 0 
-      ? allSessions.reduce((sum, session) => sum + (session.overall_score || 0), 0) / allSessions.length
+    // Get analytics data for scoring
+    const { data: analyticsData } = await supabase
+      .from('salesai_session_analytics')
+      .select('overall_score')
+      .eq('profile_id', profile.id)
+      .not('overall_score', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    // Calculate average score from analytics data
+    const averageScore = analyticsData && analyticsData.length > 0
+      ? analyticsData.reduce((sum, record) => sum + (record.overall_score || 0), 0) / analyticsData.length
       : 0;
 
     // Calculate streak days (consecutive days with sessions)
@@ -141,7 +200,7 @@ export async function GET(request: NextRequest) {
       totalMinutesUsed,
       totalSessions: allSessions?.length || 0,
       averageScore: Math.round(averageScore * 10) / 10,
-      subscriptionTier: subscription?.tier || 'starter',
+      subscriptionTier: subscription?.plan_name || 'starter',
       isDemo: false
     };
 
@@ -153,7 +212,7 @@ export async function GET(request: NextRequest) {
     
     // Fallback to demo stats if database query fails
     return NextResponse.json({
-      minutesLeft: 100,
+      minutesLeft: 2,
       sessionsToday: 0,
       progressScore: 0,
       streakDays: 0,

@@ -7,23 +7,23 @@ export async function GET(request: NextRequest) {
   const next = searchParams.get('next') ?? '/dashboard'
 
   if (code) {
-    const cookieStore = {
-      get(name: string) {
-        return request.cookies.get(name)?.value
-      },
-      set(name: string, value: string, options: CookieOptions) {
-        request.cookies.set({ name, value, ...options })
-      },
-      remove(name: string, options: CookieOptions) {
-        request.cookies.set({ name, value: '', ...options })
-      },
-    }
+    const response = NextResponse.next()
 
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
-        cookies: cookieStore,
+        cookies: {
+          get(name: string) {
+            return request.cookies.get(name)?.value
+          },
+          set(name: string, value: string, options: CookieOptions) {
+            response.cookies.set({ name, value, ...options })
+          },
+          remove(name: string, options: CookieOptions) {
+            response.cookies.set({ name, value: '', ...options })
+          },
+        }
       }
     )
 
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
 
         // After successful auth, try to ensure user profile exists
         try {
-          await ensureUserProfile(authData.user, origin)
+          await ensureUserProfile(authData.user, authData.session, origin)
           console.log('✅ User profile verified/created')
         } catch (profileError) {
           console.error('⚠️ Profile creation failed:', profileError)
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
         }
 
         // Successfully authenticated, redirect to intended destination
-        return NextResponse.redirect(`${origin}${next}`)
+        return NextResponse.redirect(`${origin}${next}`, { headers: response.headers })
       } else {
         console.error('Auth exchange error:', error)
         return NextResponse.redirect(`${origin}/login?error=auth_failed`)
@@ -59,31 +59,47 @@ export async function GET(request: NextRequest) {
   return NextResponse.redirect(`${origin}/login?error=no_code`)
 }
 
-async function ensureUserProfile(user: any, origin: string) {
+async function ensureUserProfile(user: any, session: any, origin: string) {
   try {
+    // Detect if this is a self-registration vs admin-created user
+    // Self-registrations should always be demo users
+    const isAdminCreated = user.user_metadata?.role && user.user_metadata?.role !== 'demo_user';
+    const finalRole = isAdminCreated ? user.user_metadata.role : 'demo_user';
+
+    console.log('👤 Creating profile - Admin created:', isAdminCreated, 'Role:', finalRole);
+    console.log('🔑 Authentication context available - Access token:', session.access_token ? 'Present' : 'Missing');
+
+    // Extract access token from session for API authentication
+    const accessToken = session?.access_token;
+    if (!accessToken) {
+      console.error('❌ No access token available in session');
+      throw new Error('Authentication token missing from session');
+    }
+
     // Check if profile already exists by calling our profile creation API
     const profileResponse = await fetch(`${origin}/api/profile/create`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
         auth_id: user.id,
         email: user.email,
-        first_name: user.user_metadata?.first_name || 
-                    user.user_metadata?.full_name?.split(' ')[0] || 
-                    user.email?.split('@')[0] || 
+        first_name: user.user_metadata?.first_name ||
+                    user.user_metadata?.full_name?.split(' ')[0] ||
+                    user.email?.split('@')[0] ||
                     'User',
-        last_name: user.user_metadata?.last_name || 
-                   user.user_metadata?.full_name?.split(' ').slice(1).join(' ') || 
+        last_name: user.user_metadata?.last_name ||
+                   user.user_metadata?.full_name?.split(' ').slice(1).join(' ') ||
                    '',
-        company_name: user.user_metadata?.company || 
-                      user.user_metadata?.company_name || 
+        company_name: user.user_metadata?.company ||
+                      user.user_metadata?.company_name ||
                       'Unknown Company',
         position: user.user_metadata?.position || null,
         phone: user.user_metadata?.phone || null,
         team_size: user.user_metadata?.team_size || null,
-        role: user.user_metadata?.role || 'user'
+        role: finalRole
       })
     })
 
@@ -94,9 +110,36 @@ async function ensureUserProfile(user: any, origin: string) {
     }
 
     if (!profileResponse.ok) {
-      const errorData = await profileResponse.json()
-      console.error('❌ Profile creation failed:', errorData)
-      throw new Error(`Profile creation failed: ${errorData.error}`)
+      const errorData = await profileResponse.json().catch(() => ({ error: 'Unable to parse error response' }))
+      console.error('❌ Profile creation failed:', {
+        status: profileResponse.status,
+        statusText: profileResponse.statusText,
+        error: errorData,
+        authContext: accessToken ? 'Bearer token present' : 'No bearer token'
+      })
+
+      // Handle specific error cases with detailed debugging
+      if (profileResponse.status === 401) {
+        console.error('🚫 Authentication failed - Bearer token may be invalid or expired')
+        throw new Error('Authentication failed: Bearer token invalid or expired')
+      }
+
+      if (profileResponse.status === 403) {
+        console.error('🚫 Authorization failed - User may not have permission to create profile')
+        throw new Error('Authorization failed: Insufficient permissions to create profile')
+      }
+
+      if (profileResponse.status === 400 && errorData.error?.includes('role')) {
+        console.error('⚠️ Role validation failed for demo user registration')
+        throw new Error('Invalid role assignment for demo user registration')
+      }
+
+      if (profileResponse.status === 500) {
+        console.error('💥 Server error during profile creation')
+        throw new Error(`Server error during profile creation: ${errorData.error}`)
+      }
+
+      throw new Error(`Profile creation failed (${profileResponse.status}): ${errorData.error}`)
     }
 
     const profileData = await profileResponse.json()

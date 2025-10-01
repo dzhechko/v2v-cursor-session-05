@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase, TABLES } from '../../../../lib/supabase-backend';
+import { supabase, TABLES, canStartDemoSession, getDemoLimits, incrementDemoSessions } from '../../../../lib/server/supabase-backend';
 
 const createSessionSchema = {
   title: (value: any) => typeof value === 'string' && value.length >= 1 && value.length <= 255,
@@ -71,6 +71,23 @@ export async function POST(req: NextRequest) {
     
     console.log('✅ Profile found:', profile.email);
 
+    // Check demo user limits if this is a demo user
+    if (profile.role === 'demo_user') {
+      if (!canStartDemoSession(profile)) {
+        const { maxSessions, maxMinutes } = getDemoLimits();
+        const sessionsUsed = profile.demo_sessions_used || 0;
+        const minutesUsed = profile.demo_minutes_used || 0;
+
+        return NextResponse.json({
+          error: 'Demo limit exceeded',
+          message: `Demo users can use ${maxSessions} session(s) up to ${maxMinutes} minutes total. You've used ${sessionsUsed} session(s) and ${minutesUsed.toFixed(1)} minutes. Please upgrade to continue training.`,
+          needsUpgrade: true
+        }, { status: 400 });
+      }
+
+      console.log('✅ Demo user can start session - limits OK');
+    }
+
     // Body already parsed above, validate it
     const validatedData = validateSchema(body, createSessionSchema);
 
@@ -106,8 +123,20 @@ export async function POST(req: NextRequest) {
       console.error('❌ Session creation error:', sessionError);
       return NextResponse.json({ error: 'Failed to create session' }, { status: 500 });
     }
-    
+
     console.log('✅ Real session created:', session.id);
+
+    // Update demo usage if this is a demo user
+    if (profile.role === 'demo_user') {
+      console.log('🔍 Updating demo usage for user...');
+      try {
+        await incrementDemoSessions(profile.id);
+        console.log('✅ Demo usage updated atomically');
+      } catch (updateError) {
+        console.error('⚠️ Failed to update demo usage:', updateError);
+        // Don't fail the session creation for this
+      }
+    }
 
     // Log audit trail
     await supabase.from(TABLES.AUDIT_LOGS).insert({
@@ -123,7 +152,8 @@ export async function POST(req: NextRequest) {
       }
     });
 
-    return NextResponse.json({
+    // Prepare response with demo limit info if applicable
+    const response: any = {
       session: {
         id: session.id,
         title: session.title,
@@ -131,7 +161,22 @@ export async function POST(req: NextRequest) {
         started_at: session.started_at,
         processing_status: session.processing_status
       }
-    });
+    };
+
+    // Add demo user info to response
+    if (profile.role === 'demo_user') {
+      const { maxMinutes } = getDemoLimits();
+      const remainingMinutes = Math.max(0, maxMinutes - (profile.demo_minutes_used || 0));
+
+      response.demo = {
+        isDemo: true,
+        maxSessionMinutes: Math.min(2, remainingMinutes), // Max 2 minutes per session
+        remainingMinutes,
+        message: `Demo session limited to ${Math.min(2, remainingMinutes).toFixed(1)} minutes`
+      };
+    }
+
+    return NextResponse.json(response);
 
   } catch (error) {
     console.error('Error in create-session:', error);

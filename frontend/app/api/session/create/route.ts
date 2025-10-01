@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase, TABLES, canStartDemoSession, getDemoLimits, incrementDemoSessions } from '../../../../lib/server/supabase-backend';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
 const createSessionSchema = {
   title: (value: any) => typeof value === 'string' && value.length >= 1 && value.length <= 255,
@@ -46,14 +47,20 @@ export async function POST(req: NextRequest) {
 
     const token = authHeader.replace('Bearer ', '');
     console.log('🔍 Verifying auth token...');
-    
+
+    // Create auth client with anon key to verify user token
+    const authClient = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+
     // Verify the user token with Supabase
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+    const { data: { user }, error: userError } = await authClient.auth.getUser(token);
     if (userError || !user) {
       console.error('❌ Auth verification failed:', userError);
       return NextResponse.json({ error: 'Invalid authorization token' }, { status: 401 });
     }
-    
+
     console.log('✅ User verified:', user.email);
 
     // Get user profile

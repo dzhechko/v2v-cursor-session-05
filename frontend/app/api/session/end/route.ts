@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase, TABLES, incrementDemoMinutes } from '../../../../lib/server/supabase-backend';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
 function validateEndSession(data: any) {
   if (!data.session_id || typeof data.session_id !== 'string') {
@@ -50,9 +51,15 @@ export async function POST(req: NextRequest) {
     }
 
     const token = authHeader.replace('Bearer ', '');
-    
+
+    // Create auth client with anon key to verify user token
+    const authClient = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+
     // Verify the user token with Supabase
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+    const { data: { user }, error: userError } = await authClient.auth.getUser(token);
     if (userError || !user) {
       return NextResponse.json({ error: 'Invalid authorization token' }, { status: 401 });
     }

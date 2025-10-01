@@ -72,63 +72,17 @@ export default function SessionPage() {
     });
 
     try {
-      // First, create a session record in our database
-      const { data: { session } } = await supabase.auth.getSession();
+      // Simply redirect to results page - analysis will happen there
+      console.log('📊 Redirecting to analysis page...');
+      toast.success(`🎉 Session completed! Duration: ${Math.round(duration/60)} minutes`);
 
-      const createResponse = await fetch('/api/session/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(session?.access_token && { 'Authorization': `Bearer ${session.access_token}` })
-        },
-        body: JSON.stringify({
-          title: `Voice Training Session - ${new Date().toLocaleString()}`,
-          userId: session?.user?.id || 'demo-user'
-        })
-      });
-
-      if (!createResponse.ok) {
-        throw new Error('Failed to create session record');
-      }
-
-      const { session: sessionData } = await createResponse.json();
-      console.log('✅ Session record created:', sessionData.id);
-
-      // Update state with conversation ID
-      setConversationId(currentConversationId);
-
-      // Now end the session with the correct session_id
-      const endResponse = await fetch('/api/session/end', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(session?.access_token && { 'Authorization': `Bearer ${session.access_token}` })
-        },
-        body: JSON.stringify({
-          session_id: sessionData.id,
-          duration_seconds: duration,
-          transcript,
-          conversation_id: currentConversationId
-        })
-      });
-
-      if (endResponse.ok) {
-        const endData = await endResponse.json();
-        console.log('✅ Session ended successfully:', endData);
-        toast.success(`🎉 Session completed! Duration: ${Math.round(duration/60)} minutes`);
-      } else {
-        console.warn('⚠️ Could not end session properly');
-        toast.success('🎉 Session completed!');
-      }
-
-      // Redirect to results page with ElevenLabs conversation_id
       setTimeout(() => {
         router.push(`/session/${currentConversationId}/results`);
-      }, 1500);
+      }, 1000);
 
     } catch (error) {
       console.error('❌ Error handling session end:', error);
-      toast.error('Session completed but there was an issue saving data');
+      toast.error('Session completed but there was an issue');
       setTimeout(() => {
         router.push('/dashboard');
       }, 2000);

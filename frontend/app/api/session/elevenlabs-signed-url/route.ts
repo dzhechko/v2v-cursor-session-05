@@ -1,4 +1,6 @@
 // Real ElevenLabs integration using environment variables
+export const dynamic = 'force-dynamic'; // Disable caching - each request needs unique signed URL
+
 export async function GET(request: Request) {
   try {
     // Use environment variables with proper validation

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OpenAI } from 'openai';
+import { supabase, TABLES } from '../../../../../lib/server/supabase-backend';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic'; // Disable caching
 
@@ -157,6 +159,83 @@ export async function POST(
     };
 
     console.log('✅ ElevenLabs conversation analysis completed successfully');
+
+    // 5. Save to database
+    try {
+      const authHeader = request.headers.get('authorization');
+      let userId = null;
+      let profileId = null;
+
+      if (authHeader) {
+        const token = authHeader.replace('Bearer ', '');
+        const authClient = createSupabaseClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        );
+        const { data: { user } } = await authClient.auth.getUser(token);
+        if (user) {
+          userId = user.id;
+          const { data: profile } = await supabase
+            .from(TABLES.PROFILES)
+            .select('id, company_id')
+            .eq('auth_id', user.id)
+            .single();
+          if (profile) profileId = profile.id;
+        }
+      }
+
+      // Create or find session record
+      let sessionRecord;
+      const { data: existingSession } = await supabase
+        .from(TABLES.SESSIONS)
+        .select('*')
+        .eq('conversation_id', conversationId)
+        .single();
+
+      if (existingSession) {
+        sessionRecord = existingSession;
+      } else if (profileId) {
+        const { data: newSession } = await supabase
+          .from(TABLES.SESSIONS)
+          .insert({
+            profile_id: profileId,
+            conversation_id: conversationId,
+            title: `Voice Training - ${new Date().toLocaleString()}`,
+            status: 'analyzed',
+            duration_seconds: conversationData.metadata?.call_duration_secs || 0,
+            processing_status: 'completed',
+            analytics_summary: {
+              overall_score: analysis.overall_score,
+              strengths_count: analysis.key_strengths?.length || 0,
+              improvements_count: analysis.areas_for_improvement?.length || 0
+            }
+          })
+          .select()
+          .single();
+        sessionRecord = newSession;
+      }
+
+      // Save analysis results
+      if (sessionRecord) {
+        await supabase.from(TABLES.ANALYSIS_RESULTS).insert({
+          session_id: sessionRecord.id,
+          analysis_type: 'sales_conversation',
+          provider: 'openai',
+          version: process.env.OPENAI_MODEL || 'gpt-4o',
+          results: {
+            analysis: analysis,
+            conversation_metadata: result.conversation_metadata,
+            transcript: transcript
+          },
+          confidence_score: analysis.overall_score / 10
+        });
+        console.log('✅ Analysis saved to database');
+      }
+    } catch (dbError) {
+      console.warn('⚠️ Failed to save to database:', dbError);
+      // Don't fail the analysis if DB save fails
+    }
+
     return NextResponse.json(result);
 
   } catch (error) {

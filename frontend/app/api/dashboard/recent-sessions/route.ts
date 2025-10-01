@@ -48,7 +48,11 @@ export async function GET(request: NextRequest) {
       }
 
       // Transform ElevenLabs conversations for dashboard using real API structure
-      const recentSessions = conversations.slice(0, 10).map((conv: any) => {
+      // Sort by start time (newest first) before taking first 10
+      const recentSessions = conversations
+        .sort((a: any, b: any) => b.start_time_unix_secs - a.start_time_unix_secs)
+        .slice(0, 10)
+        .map((conv: any) => {
         const cached = cachedAnalysis.find(c => c.conversation_id === conv.conversation_id);
         const cachedScore = cached?.analytics_summary?.overall_score ||
                            cached?.salesai_analysis_results?.[0]?.results?.analysis?.overall_score;

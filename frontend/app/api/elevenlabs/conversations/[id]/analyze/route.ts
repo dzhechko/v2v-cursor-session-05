@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OpenAI } from 'openai';
+import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic'; // Disable caching
 
@@ -13,6 +14,25 @@ export async function POST(
     const openaiApiKey = process.env.OPENAI_API_KEY;
 
     console.log('🔍 Analysis request for conversation:', conversationId);
+
+    // 1. Check cache in database first
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    const { data: cachedAnalysis } = await supabase
+      .from('salesai_sessions')
+      .select('id, conversation_id, analytics_summary, salesai_analysis_results(*)')
+      .eq('conversation_id', conversationId)
+      .single();
+
+    if (cachedAnalysis?.salesai_analysis_results?.[0]?.results) {
+      console.log('✅ Found cached analysis in database');
+      const cached = cachedAnalysis.salesai_analysis_results[0].results;
+      return NextResponse.json(cached);
+    }
+
     console.log('🔑 API keys configured:', {
       elevenlabs: !!elevenlabsApiKey,
       openai: !!openaiApiKey
@@ -158,8 +178,74 @@ export async function POST(
 
     console.log('✅ ElevenLabs conversation analysis completed successfully');
 
-    // TODO: Save to database (disabled temporarily due to import issues)
-    // Will implement in separate endpoint
+    // 5. Save to database asynchronously (don't wait for it)
+    try {
+      const authHeader = request.headers.get('authorization');
+      let profileId = null;
+
+      if (authHeader) {
+        const token = authHeader.replace('Bearer ', '');
+        const authClient = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        );
+
+        const { data: { user } } = await authClient.auth.getUser(token);
+        if (user) {
+          const { data: profile } = await supabase
+            .from('salesai_profiles')
+            .select('id, company_id')
+            .eq('auth_id', user.id)
+            .single();
+          if (profile) profileId = profile.id;
+        }
+      }
+
+      if (profileId) {
+        // Create session record
+        const { data: session } = await supabase
+          .from('salesai_sessions')
+          .upsert({
+            conversation_id: conversationId,
+            profile_id: profileId,
+            title: `Voice Training - ${new Date().toLocaleString()}`,
+            status: 'analyzed',
+            duration_seconds: conversationData.metadata?.call_duration_secs || 0,
+            processing_status: 'completed',
+            analytics_summary: {
+              overall_score: analysis.overall_score,
+              message_count: transcript.length
+            }
+          }, {
+            onConflict: 'conversation_id',
+            ignoreDuplicates: false
+          })
+          .select('id')
+          .single();
+
+        if (session) {
+          // Save analysis results
+          await supabase
+            .from('salesai_analysis_results')
+            .upsert({
+              session_id: session.id,
+              analysis_type: 'sales_conversation',
+              provider: 'openai',
+              version: process.env.OPENAI_MODEL || 'gpt-4o',
+              results: result,
+              confidence_score: analysis.overall_score / 10
+            }, {
+              onConflict: 'session_id',
+              ignoreDuplicates: false
+            });
+
+          console.log('✅ Analysis cached in database');
+        }
+      }
+    } catch (dbError) {
+      console.warn('⚠️ Failed to cache analysis:', dbError);
+      // Don't fail the response if caching fails
+    }
 
     return NextResponse.json(result);
 

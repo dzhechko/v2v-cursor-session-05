@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { createClient } from '../../../lib/supabase';
+import { createClient } from '../../../../lib/supabase';
 import { 
   ArrowLeft, 
   CheckCircle,

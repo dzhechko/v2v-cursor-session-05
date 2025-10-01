@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OpenAI } from 'openai';
-import { supabase, TABLES } from '../../../../../lib/server/supabase-backend';
+import { supabase, TABLES } from '../../../../../../lib/server/supabase-backend';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic'; // Disable caching

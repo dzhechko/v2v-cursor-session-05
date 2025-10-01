@@ -30,10 +30,10 @@ export async function GET(request: Request) {
     }
 
     console.log('🔄 Requesting signed URL from ElevenLabs API...');
-    
-    // Request signed URL from ElevenLabs API (matching the official example exactly)
+
+    // Request signed URL from ElevenLabs API with conversation_id included
     const response = await fetch(
-      `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${AGENT_ID}`,
+      `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${AGENT_ID}&include_conversation_id=true`,
       {
         method: 'GET',
         headers: {
@@ -60,10 +60,13 @@ export async function GET(request: Request) {
     }
 
     const data = await response.json();
-    console.log('✅ ElevenLabs signed URL obtained successfully');
+    console.log('✅ ElevenLabs signed URL obtained successfully', {
+      hasConversationId: !!data.conversation_id
+    });
 
-    return new Response(JSON.stringify({ 
+    return new Response(JSON.stringify({
       signedUrl: data.signed_url,
+      conversationId: data.conversation_id, // Include conversation_id from ElevenLabs
       agentId: AGENT_ID
     }), {
       status: 200,

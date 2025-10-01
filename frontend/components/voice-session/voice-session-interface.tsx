@@ -20,12 +20,13 @@ interface ConnectionQuality {
 
 interface VoiceSessionInterfaceProps {
   sessionId: string;
-  onSessionEnd: (duration: number, transcript?: TranscriptMessage[]) => void;
+  onSessionEnd: (duration: number, conversationId?: string, transcript?: TranscriptMessage[]) => void;
 }
 
 export default function VoiceSessionInterface({ sessionId, onSessionEnd }: VoiceSessionInterfaceProps) {
   // Connection states
   const [conversation, setConversation] = useState<any>(null);
+  const [elevenLabsConversationId, setElevenLabsConversationId] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -58,20 +59,29 @@ export default function VoiceSessionInterface({ sessionId, onSessionEnd }: Voice
     }
   }, []);
 
-  // Get signed URL from our backend (simplified for demo)
+  // Get signed URL from our backend
   const getSignedUrl = useCallback(async () => {
     try {
       console.log('🔄 Requesting signed URL...');
       const response = await fetch('/api/session/elevenlabs-signed-url');
-      
+
       if (!response.ok) {
         const error = await response.json();
         console.error('❌ Backend error:', error);
         throw new Error(error.message || error.error || 'Failed to get signed URL');
       }
-      
+
       const data = await response.json();
-      console.log('✅ Signed URL obtained from backend');
+      console.log('✅ Signed URL obtained from backend', {
+        hasConversationId: !!data.conversationId
+      });
+
+      // Store conversation ID if provided by ElevenLabs
+      if (data.conversationId) {
+        setElevenLabsConversationId(data.conversationId);
+        console.log('📝 ElevenLabs conversation ID saved:', data.conversationId);
+      }
+
       return data.signedUrl;
     } catch (error) {
       console.error('❌ Error getting signed URL:', error);
@@ -119,13 +129,14 @@ export default function VoiceSessionInterface({ sessionId, onSessionEnd }: Voice
           setIsRecording(false);
           setIsSpeaking(false);
           setConnectionQuality({ signal: 0, latency: 0 });
-          
+
           if (sessionStartTime) {
             const duration = Math.floor((Date.now() - sessionStartTime.getTime()) / 1000);
-            console.log('📝 Disconnected - ending session with transcript:', transcript.length, 'messages');
-            onSessionEnd(duration, transcript);
+            const conversationId = elevenLabsConversationId || newConversation?.getConversationId?.() || `unknown-${Date.now()}`;
+            console.log('📝 Disconnected - ending session with conversation ID:', conversationId, 'and', transcript.length, 'messages');
+            onSessionEnd(duration, conversationId, transcript);
           }
-          
+
           toast('Session ended', { icon: '👋' });
         },
         onError: (error) => {
@@ -171,7 +182,7 @@ export default function VoiceSessionInterface({ sessionId, onSessionEnd }: Voice
       console.error('Error starting conversation:', error);
       toast.error('Demo: Connection simulation failed');
     }
-  }, [requestMicrophonePermission]);
+  }, [requestMicrophonePermission, getSignedUrl]);
 
   // End conversation
   const endConversation = useCallback(async () => {
@@ -183,22 +194,23 @@ export default function VoiceSessionInterface({ sessionId, onSessionEnd }: Voice
       } catch (error) {
         console.error('❌ Error ending conversation:', error);
       }
-      
+
       setConversation(null);
       setIsConnected(false);
       setIsSpeaking(false);
       setIsRecording(false);
       setConnectionQuality({ signal: 0, latency: 0 });
-      
+
       if (sessionStartTime) {
         const duration = Math.floor((Date.now() - sessionStartTime.getTime()) / 1000);
-        console.log('📝 Ending session with transcript:', transcript.length, 'messages');
-        onSessionEnd(duration, transcript);
+        const conversationId = elevenLabsConversationId || conversation?.getConversationId?.() || `unknown-${Date.now()}`;
+        console.log('📝 Ending session with conversation ID:', conversationId, 'and', transcript.length, 'messages');
+        onSessionEnd(duration, conversationId, transcript);
       }
-      
+
       toast('Session ended', { icon: '👋' });
     }
-  }, [conversation, sessionStartTime, onSessionEnd]);
+  }, [conversation, sessionStartTime, transcript, elevenLabsConversationId, onSessionEnd]);
 
   // Session timer
   useEffect(() => {

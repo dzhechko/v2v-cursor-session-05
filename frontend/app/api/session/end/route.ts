@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase, TABLES } from '../../../../lib/supabase-backend';
+import { supabase, TABLES, incrementDemoMinutes } from '../../../../lib/server/supabase-backend';
 
 function validateEndSession(data: any) {
   if (!data.session_id || typeof data.session_id !== 'string') {
@@ -7,6 +7,10 @@ function validateEndSession(data: any) {
   }
   if (!data.duration_seconds || typeof data.duration_seconds !== 'number' || data.duration_seconds <= 0) {
     throw new Error('Invalid duration_seconds');
+  }
+  // conversation_id is optional but should be string if provided
+  if (data.conversation_id && typeof data.conversation_id !== 'string') {
+    throw new Error('Invalid conversation_id');
   }
   return data;
 }
@@ -94,6 +98,7 @@ export async function POST(req: NextRequest) {
         ended_at: new Date().toISOString(),
         duration_seconds: validatedData.duration_seconds,
         transcript: validatedData.transcript, // ← Store real transcript
+        conversation_id: validatedData.conversation_id, // ← Store ElevenLabs conversation_id
         audio_quality: validatedData.audio_quality,
         audio_file_url: validatedData.audio_file_url,
         audio_file_size: validatedData.audio_file_size,
@@ -109,31 +114,45 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to update session' }, { status: 500 });
     }
 
-    // Update subscription usage
-    const { data: subscription } = await supabase
-      .from(TABLES.SUBSCRIPTIONS)
-      .select('*')
-      .eq('profile_id', profile.id)
-      .eq('status', 'active')
-      .single();
+    // Update demo usage if this is a demo user
+    if (profile.role === 'demo_user') {
+      console.log('🔍 Updating demo minutes for completed session...');
+      try {
+        await incrementDemoMinutes(profile.id, minutesUsed);
+        console.log('✅ Demo minutes updated:', minutesUsed);
+      } catch (demoError) {
+        console.error('⚠️ Failed to update demo minutes:', demoError);
+        // Don't fail the session completion for this
+      }
+    }
 
-    if (subscription) {
-      await supabase
+    // Update subscription usage (only for non-demo users with active subscriptions)
+    if (profile.role !== 'demo_user') {
+      const { data: subscription } = await supabase
         .from(TABLES.SUBSCRIPTIONS)
-        .update({ 
-          minutes_used: subscription.minutes_used + minutesUsed 
-        })
-        .eq('id', subscription.id);
+        .select('*')
+        .eq('profile_id', profile.id)
+        .eq('status', 'active')
+        .single();
 
-      // Record usage
-      await supabase.from(TABLES.USAGE).insert({
-        profile_id: profile.id,
-        company_id: profile.company_id,
-        minutes_used: minutesUsed,
-        session_id: validatedData.session_id,
-        period_start: subscription.current_period_start,
-        period_end: subscription.current_period_end
-      });
+      if (subscription) {
+        await supabase
+          .from(TABLES.SUBSCRIPTIONS)
+          .update({
+            minutes_used: subscription.minutes_used + minutesUsed
+          })
+          .eq('id', subscription.id);
+
+        // Record usage
+        await supabase.from(TABLES.USAGE).insert({
+          profile_id: profile.id,
+          company_id: profile.company_id,
+          minutes_used: minutesUsed,
+          session_id: validatedData.session_id,
+          period_start: subscription.current_period_start,
+          period_end: subscription.current_period_end
+        });
+      }
     }
 
     // Log audit trail

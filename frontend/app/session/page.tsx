@@ -63,8 +63,8 @@ export default function SessionPage() {
   }, []);
 
   // Handle session end with ElevenLabs conversation data
-  const handleSessionEnd = async (duration: number, transcript?: any[]) => {
-    const currentConversationId = conversationId || `unknown-${Date.now()}`;
+  const handleSessionEnd = async (duration: number, elevenLabsConversationId?: string, transcript?: any[]) => {
+    const currentConversationId = elevenLabsConversationId || conversationId || `unknown-${Date.now()}`;
     console.log('🏁 ElevenLabs session ended:', {
       conversationId: currentConversationId,
       duration,
@@ -72,56 +72,68 @@ export default function SessionPage() {
     });
 
     try {
-             // Get conversation data directly from ElevenLabs
-       const conversationResponse = await fetch(`/api/elevenlabs/conversations/${currentConversationId}`);
-       let conversationData = null;
-       
-       if (conversationResponse.ok) {
-         conversationData = await conversationResponse.json();
-         console.log('📡 ElevenLabs conversation data:', conversationData);
-       }
+      // First, create a session record in our database
+      const { data: { session } } = await supabase.auth.getSession();
 
-       // Save minimal session record with ElevenLabs conversation_id
-       const sessionRecord = {
-         conversation_id: currentConversationId,
-         duration_seconds: duration,
-         message_count: transcript?.length || 0,
-         ended_at: new Date().toISOString(),
-         user_id: userInfo?.auth_id || null,
-         status: 'completed'
-       };
-
-      const saveResponse = await fetch('/api/session/end', {
+      const createResponse = await fetch('/api/session/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(userInfo?.auth_id && { 'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` })
+          ...(session?.access_token && { 'Authorization': `Bearer ${session.access_token}` })
         },
-        body: JSON.stringify(sessionRecord)
+        body: JSON.stringify({
+          title: `Voice Training Session - ${new Date().toLocaleString()}`,
+          userId: session?.user?.id || 'demo-user'
+        })
       });
 
-      if (saveResponse.ok) {
-        const sessionData = await saveResponse.json();
-        console.log('✅ Session record saved:', sessionData);
+      if (!createResponse.ok) {
+        throw new Error('Failed to create session record');
+      }
+
+      const { session: sessionData } = await createResponse.json();
+      console.log('✅ Session record created:', sessionData.id);
+
+      // Update state with conversation ID
+      setConversationId(currentConversationId);
+
+      // Now end the session with the correct session_id
+      const endResponse = await fetch('/api/session/end', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token && { 'Authorization': `Bearer ${session.access_token}` })
+        },
+        body: JSON.stringify({
+          session_id: sessionData.id,
+          duration_seconds: duration,
+          transcript,
+          conversation_id: currentConversationId
+        })
+      });
+
+      if (endResponse.ok) {
+        const endData = await endResponse.json();
+        console.log('✅ Session ended successfully:', endData);
         toast.success(`🎉 Session completed! Duration: ${Math.round(duration/60)} minutes`);
       } else {
-        console.warn('⚠️ Could not save session record');
+        console.warn('⚠️ Could not end session properly');
         toast.success('🎉 Session completed!');
       }
-      
-             // Redirect to results page with ElevenLabs conversation_id
-       setTimeout(() => {
-         router.push(`/session/${currentConversationId}/results`);
-       }, 1500);
-       
-     } catch (error) {
-       console.error('❌ Error handling session end:', error);
-       toast.error('Session completed but there was an issue saving data');
-       setTimeout(() => {
-         router.push('/dashboard');
-       }, 2000);
-     }
-   };
+
+      // Redirect to results page with ElevenLabs conversation_id
+      setTimeout(() => {
+        router.push(`/session/${currentConversationId}/results`);
+      }, 1500);
+
+    } catch (error) {
+      console.error('❌ Error handling session end:', error);
+      toast.error('Session completed but there was an issue saving data');
+      setTimeout(() => {
+        router.push('/dashboard');
+      }, 2000);
+    }
+  };
 
    // Generate a temporary ID for the interface before ElevenLabs provides conversation_id
    const sessionId = conversationId || `temp-${Date.now()}`;

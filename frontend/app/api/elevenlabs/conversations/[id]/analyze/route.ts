@@ -216,8 +216,11 @@ export async function POST(
     console.log('✅ ElevenLabs conversation analysis completed successfully');
 
     // 5. Save to database for caching (prevents redundant GPT API calls)
+    console.log('💾 Starting database caching process...');
     try {
       const authHeader = request.headers.get('authorization');
+      console.log('🔑 Authorization header present:', !!authHeader);
+
       let profileId = null;
 
       if (authHeader) {
@@ -227,36 +230,58 @@ export async function POST(
           process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
         );
 
-        const { data: { user } } = await authClient.auth.getUser(token);
-        if (user) {
-          const { data: profile } = await supabase
+        console.log('🔍 Getting user from auth token...');
+        const { data: { user }, error: userError } = await authClient.auth.getUser(token);
+
+        if (userError) {
+          console.error('❌ Failed to get user from token:', userError);
+        } else if (user) {
+          console.log('✅ User authenticated:', user.email);
+
+          const { data: profile, error: profileError } = await supabase
             .from('salesai_profiles')
             .select('id, company_id')
             .eq('auth_id', user.id)
             .single();
-          if (profile) profileId = profile.id;
+
+          if (profileError) {
+            console.error('❌ Failed to fetch profile:', profileError);
+          } else if (profile) {
+            profileId = profile.id;
+            console.log('✅ Profile found:', profile.id);
+          } else {
+            console.warn('⚠️ No profile found for user:', user.id);
+          }
+        } else {
+          console.warn('⚠️ No user data from token');
         }
+      } else {
+        console.warn('⚠️ No authorization header in request');
       }
 
       if (profileId) {
         console.log('💾 Caching analysis to database for conversation:', conversationId);
 
         // Create or update session record
+        const sessionData = {
+          conversation_id: conversationId,
+          profile_id: profileId,
+          title: `Voice Training - ${new Date().toLocaleString()}`,
+          status: 'analyzed' as const,
+          duration_seconds: conversationData.metadata?.call_duration_secs || 0,
+          processing_status: 'completed',
+          analytics_summary: {
+            overall_score: analysis.overall_score,
+            message_count: transcript.length,
+            cached_at: new Date().toISOString()
+          }
+        };
+
+        console.log('📝 Upserting session with data:', { conversation_id: conversationId, profile_id: profileId });
+
         const { data: session, error: sessionError } = await supabase
           .from('salesai_sessions')
-          .upsert({
-            conversation_id: conversationId,
-            profile_id: profileId,
-            title: `Voice Training - ${new Date().toLocaleString()}`,
-            status: 'analyzed',
-            duration_seconds: conversationData.metadata?.call_duration_secs || 0,
-            processing_status: 'completed',
-            analytics_summary: {
-              overall_score: analysis.overall_score,
-              message_count: transcript.length,
-              cached_at: new Date().toISOString()
-            }
-          }, {
+          .upsert(sessionData, {
             onConflict: 'conversation_id',
             ignoreDuplicates: false
           })
@@ -265,38 +290,51 @@ export async function POST(
 
         if (sessionError) {
           console.error('❌ Failed to save session:', sessionError);
+          console.error('❌ Session error details:', JSON.stringify(sessionError));
           throw sessionError;
         }
 
         if (session) {
+          console.log('✅ Session saved with ID:', session.id);
+
           // Save analysis results with unique constraint per session
+          const analysisData = {
+            session_id: session.id,
+            analysis_type: 'sales_conversation',
+            provider: 'openai',
+            version: process.env.OPENAI_MODEL || 'gpt-4o',
+            results: result,
+            confidence_score: analysis.overall_score / 10
+          };
+
+          console.log('📝 Upserting analysis results for session:', session.id);
+
           const { error: analysisError } = await supabase
             .from('salesai_analysis_results')
-            .upsert({
-              session_id: session.id,
-              analysis_type: 'sales_conversation',
-              provider: 'openai',
-              version: process.env.OPENAI_MODEL || 'gpt-4o',
-              results: result,
-              confidence_score: analysis.overall_score / 10
-            }, {
+            .upsert(analysisData, {
               onConflict: 'session_id',
               ignoreDuplicates: false
             });
 
           if (analysisError) {
             console.error('❌ Failed to save analysis results:', analysisError);
+            console.error('❌ Analysis error details:', JSON.stringify(analysisError));
             throw analysisError;
           }
 
           console.log('✅ Analysis successfully cached in database (session_id:', session.id, ')');
           console.log('💡 Future requests for this conversation will use cached results');
+        } else {
+          console.error('❌ Session upsert returned no data');
         }
       } else {
-        console.warn('⚠️ No profile found - analysis will not be cached');
+        console.warn('⚠️ No profile ID - analysis will not be cached');
+        console.warn('⚠️ Caching requires: 1) Authorization header, 2) Valid user, 3) Existing profile');
       }
     } catch (dbError) {
-      console.error('❌ Failed to cache analysis:', dbError);
+      console.error('❌ Failed to cache analysis (detailed):', dbError);
+      console.error('❌ Error type:', dbError instanceof Error ? dbError.constructor.name : typeof dbError);
+      console.error('❌ Error message:', dbError instanceof Error ? dbError.message : String(dbError));
       // Don't fail the response if caching fails - analysis is still returned to user
     }
 

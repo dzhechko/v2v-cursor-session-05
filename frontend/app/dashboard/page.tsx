@@ -577,8 +577,15 @@ export default function DashboardPage() {
                               }`}>
                                 <Mic className="w-5 h-5" />
                               </div>
-                              <div>
-                                <p className="font-medium text-gray-900">{session.title}</p>
+                              <div className="flex-1">
+                                <div className="flex items-center space-x-2">
+                                  <p className="font-medium text-gray-900">{session.title}</p>
+                                  {(session as any).conversation_id && (
+                                    <code className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded font-mono">
+                                      {((session as any).conversation_id as string).slice(-8)}
+                                    </code>
+                                  )}
+                                </div>
                                 <div className="flex items-center space-x-4 text-sm text-gray-500">
                                   <span>{session.minutes || Math.ceil(session.duration / 60)} min</span>
                                   {session.score > 0 && (
@@ -591,6 +598,11 @@ export default function DashboardPage() {
                                     <span className="text-green-600 flex items-center">
                                       <TrendingUp className="w-3 h-3 mr-1" />
                                       +{session.improvement.toFixed(1)}
+                                    </span>
+                                  )}
+                                  {(session as any).isCached && (
+                                    <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full flex items-center">
+                                      ✓ Cached
                                     </span>
                                   )}
                                   {session.status === 'demo' && (

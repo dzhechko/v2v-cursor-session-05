@@ -217,9 +217,11 @@ export async function POST(
 
     // 5. Save to database for caching (prevents redundant GPT API calls)
     console.log('💾 Starting database caching process...');
+    const debugInfo: any = { cache_attempt: true };
     try {
       const authHeader = request.headers.get('authorization');
       console.log('🔑 Authorization header present:', !!authHeader);
+      debugInfo.has_auth_header = !!authHeader;
 
       let profileId = null;
 
@@ -235,8 +237,10 @@ export async function POST(
 
         if (userError) {
           console.error('❌ Failed to get user from token:', userError);
+          debugInfo.user_error = userError.message;
         } else if (user) {
           console.log('✅ User authenticated:', user.email);
+          debugInfo.user_email = user.email;
 
           const { data: profile, error: profileError } = await supabase
             .from('salesai_profiles')
@@ -246,11 +250,14 @@ export async function POST(
 
           if (profileError) {
             console.error('❌ Failed to fetch profile:', profileError);
+            debugInfo.profile_error = profileError.message;
           } else if (profile) {
             profileId = profile.id;
             console.log('✅ Profile found:', profile.id);
+            debugInfo.profile_id = profile.id;
           } else {
             console.warn('⚠️ No profile found for user:', user.id);
+            debugInfo.profile_not_found = true;
           }
         } else {
           console.warn('⚠️ No user data from token');
@@ -324,18 +331,26 @@ export async function POST(
 
           console.log('✅ Analysis successfully cached in database (session_id:', session.id, ')');
           console.log('💡 Future requests for this conversation will use cached results');
+          debugInfo.cache_saved = true;
+          debugInfo.session_id = session.id;
         } else {
           console.error('❌ Session upsert returned no data');
+          debugInfo.session_no_data = true;
         }
       } else {
         console.warn('⚠️ No profile ID - analysis will not be cached');
         console.warn('⚠️ Caching requires: 1) Authorization header, 2) Valid user, 3) Existing profile');
+        debugInfo.no_profile_id = true;
       }
+
+      result._debug = debugInfo;
     } catch (dbError) {
       console.error('❌ Failed to cache analysis (detailed):', dbError);
       console.error('❌ Error type:', dbError instanceof Error ? dbError.constructor.name : typeof dbError);
       console.error('❌ Error message:', dbError instanceof Error ? dbError.message : String(dbError));
       // Don't fail the response if caching fails - analysis is still returned to user
+      debugInfo.cache_error = dbError instanceof Error ? dbError.message : String(dbError);
+      result._debug = debugInfo;
     }
 
     return NextResponse.json(result);
